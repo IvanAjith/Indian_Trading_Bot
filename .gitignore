@@ -1,0 +1,34 @@
+# Runtime/generated files - regenerate automatically, don't belong in git.
+__pycache__/
+*.pyc
+
+# Angel One instrument master cache (~36MB, re-downloads automatically on
+# first run if missing) and local OI-tracking file.
+angelone_instruments_cache.json
+angelone_oi_history.json
+
+# Bot process/log files - environment-specific, regenerated each run.
+monitor.log
+bot.pid
+logs/
+
+# Your actual trading data. This is genuinely valuable to keep, but it's
+# personal data that grows continuously - kept OUT of git by default so it
+# doesn't bloat the repo or get overwritten by a `git pull` on another
+# device. Back it up yourself (e.g. copy paper_trades.csv) if you want to
+# preserve history, or remove these lines if you'd rather version it.
+paper_trades.csv
+paper_trades.csv.*.bak
+paper_trades.csv.pre_*.bak
+
+# Generated report - regenerate any time with `python3 backtest_report.py`.
+backtest_report.html
+
+# Never commit real credentials if you ever create a local .env file.
+.env
+.env.*
+!.env.example
+
+# OS/editor cruft.
+.DS_Store
+*.swp

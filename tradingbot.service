@@ -1,0 +1,17 @@
+[Unit]
+Description=NSE Options Trading Bot (paper trading monitor)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/trading-bot
+EnvironmentFile=/root/trading-bot/.env
+ExecStart=/usr/bin/python3 -u /root/trading-bot/main.py --mode monitor --paper --broker angelone
+Restart=always
+RestartSec=10
+StandardOutput=append:/root/trading-bot/monitor.log
+StandardError=append:/root/trading-bot/monitor.log
+
+[Install]
+WantedBy=multi-user.target
