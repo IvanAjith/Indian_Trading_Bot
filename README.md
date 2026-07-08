@@ -137,10 +137,22 @@ If you see `command not found`, install Python from https://python.org/downloads
 cd ~/Downloads/"Claude Projects"/"Trading Bot"
 ```
 
-**4. Install the three dependencies:**
+**4. Create this project's OWN dedicated virtual environment (one-time)** -
+keeps its packages separate from any other project or your base Python, so
+they can never conflict:
 ```bash
-pip3 install -r requirements.txt
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
+Every `python3 ...` command in this README from here on assumes `venv` is
+active (your prompt will show `(venv)` at the start of the line). If you
+ever open a new Terminal window, reactivate it first:
+```bash
+cd ~/Downloads/"Claude Projects"/"Trading Bot" && source venv/bin/activate
+```
+(`start_bot.sh` / `start_bot.bat` don't need this - they always use `./venv`
+directly regardless of what's active in your terminal.)
 
 **5. Run the watchlist scan (synthetic data, so it works right now):**
 ```bash

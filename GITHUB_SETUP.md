@@ -78,6 +78,11 @@ That login is between you and GitHub directly - I never see it.
 
 Deliberately excluded so the repo stays small and no device overwrites
 another's local data on `git pull`:
+- `venv/` (this project's dedicated virtual environment - tied to the exact
+  Python install/OS it was created from, so it wouldn't even work if copied
+  to another device. Run the one-time setup from RUN_ON_ANOTHER_DEVICE.md
+  on each new device instead - `start_bot.sh`/`start_bot.bat` will then use
+  it automatically.)
 - `angelone_instruments_cache.json` (36MB, auto-downloads on first run)
 - `monitor.log`, `bot.pid`, `logs/` (per-device runtime files)
 - `paper_trades.csv` and its `.bak` backups (your personal trading data -

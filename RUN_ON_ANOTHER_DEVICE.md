@@ -55,10 +55,27 @@ excluded from the repo entirely via `.gitignore`).
   cd /path/to/Trading\ Bot
   ```
 
-## 4. Install the Python dependencies
+## 4. Create this project's dedicated virtual environment
 
-- **Windows:** `pip install -r requirements.txt`
-- **Mac/Linux:** `pip3 install -r requirements.txt`
+Every device needs its own - a venv is tied to the exact Python install it
+was created from, so it can't be copied or `git clone`d from another
+device (it's excluded via `.gitignore` for exactly this reason).
+
+- **Windows:**
+  ```
+  python -m venv venv
+  venv\Scripts\activate
+  pip install -r requirements.txt
+  ```
+- **Mac/Linux:**
+  ```
+  python3 -m venv venv
+  source venv/bin/activate
+  pip install -r requirements.txt
+  ```
+
+`start_bot.sh`/`start_bot.bat` always use this `venv` automatically from
+here on - you won't need to manually activate it just to run those.
 
 ## 5. Set your credentials as environment variables
 
