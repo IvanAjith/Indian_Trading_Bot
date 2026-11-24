@@ -102,11 +102,16 @@ def _throttled_call(fn, *args, **kwargs):
 
 
 def _require_credentials() -> dict:
+    # .strip(): secrets pasted into GitHub/env files often carry a hidden
+    # trailing newline or space, which makes login fail with a confusing
+    # "invalid header value" error. TOTP secret also has spaces removed.
+    def _clean(name):
+        return (os.environ.get(name) or "").strip()
     creds = {
-        "api_key": os.environ.get("ANGELONE_API_KEY"),
-        "client_code": os.environ.get("ANGELONE_CLIENT_CODE"),
-        "pin": os.environ.get("ANGELONE_PIN"),
-        "totp_secret": os.environ.get("ANGELONE_TOTP_SECRET"),
+        "api_key": _clean("ANGELONE_API_KEY"),
+        "client_code": _clean("ANGELONE_CLIENT_CODE"),
+        "pin": _clean("ANGELONE_PIN"),
+        "totp_secret": _clean("ANGELONE_TOTP_SECRET").replace(" ", ""),
     }
     missing = [k for k, v in creds.items() if not v]
     if missing:
