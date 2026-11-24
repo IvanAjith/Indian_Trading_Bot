@@ -36,6 +36,7 @@ class Fill:
     entry: float = 0.0          # premium at entry - lets you recompute % return per fill
     score: float = 0.0          # screener score AT ENTRY TIME (not re-evaluated later)
     win_probability: float = 0.0  # heuristic estimate at entry time (see strategy.py)
+    lot_size: int = 1            # units per lot (pnl = price move x lots x lot_size)
     reasons: str = ""            # semicolon-joined technical triggers that fired at entry -
                                   # the point of these last four fields: enough context per
                                   # row to later analyze WHICH setups/score-bands/reasons
@@ -68,8 +69,12 @@ class PaperPosition:
                                  # so it can be logged alongside every fill/exit.
     win_probability: float = 0.0
     reasons: list = field(default_factory=list)
+    lot_size: int = 1
 
     def __post_init__(self):
+        if not self.lots_by_level and self.lots_total == 1:
+            # One lot cannot be split into partial exits - take it all at T2.
+            self.lots_by_level = {"T1": 0, "T2": 1, "T3": 0}
         if not self.lots_by_level:
             t1 = round(self.lots_total * config.TARGET_ALLOCATIONS[0])
             t2 = round(self.lots_total * config.TARGET_ALLOCATIONS[1])
@@ -118,7 +123,12 @@ class PaperTradingAccount:
             writer.writeheader()
 
     def open_trade(self, idea: TradeIdea, lots: int = None) -> PaperPosition:
-        lots = lots if lots is not None else position_size(self.capital, idea.entry)
+        lots = lots if lots is not None else position_size(self.capital, idea.entry, idea.lot_size)
+        if lots <= 0:
+            print(f"[paper] skipped {idea.symbol} {idea.strike:.0f} {idea.option_type}: one lot "
+                  f"({idea.lot_size} units x Rs{idea.entry:.2f}) is too big for the "
+                  f"{config.MAX_CAPITAL_PER_TRADE_PCT}% risk limit on Rs{self.capital:.0f}.")
+            return None
         # Realistic fill: you buy at the ask / chase the move, so assume the
         # entry fills slightly ABOVE the signal price (config.PAPER_SLIPPAGE_PCT).
         slip = config.PAPER_SLIPPAGE_PCT / 100
@@ -137,6 +147,7 @@ class PaperTradingAccount:
             score=idea.score,
             win_probability=idea.win_probability,
             reasons=list(idea.reasons) if idea.reasons else [],
+            lot_size=idea.lot_size,
         )
         self.open_positions.append(pos)
         return pos
@@ -201,12 +212,12 @@ class PaperTradingAccount:
         # quoted price (same slippage % as entry). Targets/stoploss triggers
         # were already decided on the quoted price before this point.
         price = round(price * (1 - config.PAPER_SLIPPAGE_PCT / 100), 2)
-        pnl = round((price - pos.entry) * lots, 2)
+        pnl = round((price - pos.entry) * lots * pos.lot_size, 2)
         fill = Fill(
             symbol=pos.symbol, option_type=pos.option_type, strike=pos.strike,
             expiry=pos.expiry, level=level, lots=lots, price=price, pnl=pnl,
             at=dt.datetime.now().isoformat(timespec="seconds"),
-            entry=pos.entry, score=pos.score, win_probability=pos.win_probability,
+            entry=pos.entry, score=pos.score, win_probability=pos.win_probability, lot_size=pos.lot_size,
             reasons="; ".join(pos.reasons) if pos.reasons else "",
         )
         pos.fills.append(fill)

@@ -349,6 +349,7 @@ class AngelOneDataProvider:
                 oi_change_pct=self._oi_change_pct(inst["token"], current_oi),
                 iv=iv_map.get((strike, option_type), 0.0),
                 volume=int(row.get("tradeVolume", 0) or 0),
+                lot_size=int(float(inst.get("lotsize", 1) or 1)),   # from the instrument master
             ))
         return quotes
 

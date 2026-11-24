@@ -33,6 +33,7 @@ class TradeIdea:
     score: float
     rationale: str
     reasons: list         # explicit technical triggers (breakout, OI, etc.)
+    lot_size: int = 1               # units per lot, from the option contract
     win_probability: float = 0.0   # heuristic estimate, see estimate_win_probability()
 
     @property
@@ -116,14 +117,19 @@ def build_trade_idea(snapshot: UnderlyingSnapshot, screen_result: ScreenResult) 
         rationale=rationale,
         reasons=reasons,
         win_probability=estimate_win_probability(screen_result.score),
+        lot_size=max(int(leg.lot_size or 1), 1),
     )
 
 
 def position_size(capital: float, entry_premium: float, lot_size: int = 1) -> int:
-    """How many lots to buy so max loss stays within MAX_CAPITAL_PER_TRADE_PCT."""
-    risk_per_lot = entry_premium * (config.STOPLOSS_PCT / 100) * lot_size
+    """How many lots to buy so (a) the loss at the stoploss stays within
+    MAX_CAPITAL_PER_TRADE_PCT of capital and (b) you can afford the premium.
+    Returns 0 if even ONE lot is too risky/expensive for this capital - the
+    trade is then skipped rather than oversized."""
+    cost_per_lot = entry_premium * lot_size
+    risk_per_lot = cost_per_lot * (config.STOPLOSS_PCT / 100)
     max_risk = capital * (config.MAX_CAPITAL_PER_TRADE_PCT / 100)
     if risk_per_lot <= 0:
         return 0
-    lots = int(max_risk // risk_per_lot)
+    lots = min(int(max_risk // risk_per_lot), int(capital // cost_per_lot))
     return max(lots, 0)
