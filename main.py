@@ -65,9 +65,7 @@ def fetch_all_snapshots(provider):
                     f"\n[main] {consecutive_failures} symbols in a row failed - the data "
                     f"feed is down, not just one flaky symbol. Stopping early instead of "
                     f"grinding through the rest.\n"
-                    f"  -> Run `python3 diagnose_nse.py` to confirm what NSE is returning.\n"
-                    f"  -> If it's a block/captcha page, switch to a broker API feed "
-                    f"(see README 'Swapping in a broker feed').\n"
+                    f"  -> Run `python3 diagnose_angelone.py` to check the Angel One login/data calls.\n"
                 )
                 break
     return snapshots

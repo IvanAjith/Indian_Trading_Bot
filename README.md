@@ -177,7 +177,7 @@ ever open a new Terminal window, reactivate it first:
 ```bash
 cd ~/Downloads/"Claude Projects"/"Trading Bot" && source venv/bin/activate
 ```
-(`start_bot.sh` / `start_bot.bat` don't need this - they always use `./venv`
+(`start_bot.sh` doesn't need this - it always uses `./venv`
 directly regardless of what's active in your terminal.)
 
 **5. Run the watchlist scan (synthetic data, so it works right now):**
@@ -435,21 +435,11 @@ needs to run on a separate always-on machine:
 - **Free option (recommended for testing):** see **ORACLE_FREE_DEPLOY.md** -
   Oracle Cloud's Always Free tier, a real server at zero cost, indefinitely
   (uses `tradingbot-oracle.service`).
-- **Paid option (~$4-6/mo):** see **CLOUD_DEPLOY.md** - a Hostinger/
-  DigitalOcean VPS, once you're ready to commit (uses `tradingbot.service`).
 
-## Moving this to a different computer
-
-See **RUN_ON_ANOTHER_DEVICE.md** for copying the whole setup to a different
-Mac, Windows PC (via Command Prompt - includes `start_bot.bat`/`stop_bot.bat`),
-or Linux machine.
-
-## Version control (GitHub)
-
-See **GITHUB_SETUP.md** for putting this project on GitHub so you can
-`git clone`/`git pull` it onto any device instead of manually copying files.
-As of this setup, credentials (Angel One AND Telegram) are environment-variable-only -
-nothing sensitive lives in the code, so it's safe to version control.
+## Credentials and version control
+Credentials (Angel One AND Telegram) are environment variables / GitHub Secrets only - nothing
+sensitive lives in the code or git history. `.env.example` lists the names. To run locally,
+export the six variables in your shell, then `./start_bot.sh` (background) / `./stop_bot.sh`.
 
 ## Settings you may want to change (`config.py`)
 

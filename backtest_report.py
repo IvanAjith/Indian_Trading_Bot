@@ -42,8 +42,7 @@ def build_dataset(provider, symbols_with_index):
             if consecutive_failures >= 5:
                 print(
                     "[backtest_report] 5 symbols in a row failed - the data feed is "
-                    "down. Stopping early. Run diagnose_nse.py, or switch to a broker "
-                    "feed (README 'Swapping in a broker feed')."
+                    "down. Stopping early. Run diagnose_angelone.py to check the broker feed."
                 )
                 break
             continue
