@@ -329,11 +329,17 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
 
     feed_down_cycles = 0
     feed_alert_sent = False
+    if session_end and dt.datetime.now().strftime("%H:%M") >= session_end and config.TELEGRAM_ENABLED:
+        send_telegram_message(
+            f"⚠️ Session end time {session_end} (24-hour clock) is already past - "
+            f"it is {dt.datetime.now():%H:%M} IST, so this run will end immediately. "
+            f"For an evening test use e.g. 22:45, not 10:45."
+        )
     if config.TELEGRAM_ENABLED:
         send_telegram_message(
             f"\U0001F7E2 <b>Bot started</b> {dt.datetime.now():%d %b %H:%M} IST\n"
-            f"Scanning every {config.MONITOR_INTERVAL_SECONDS // 60} min"
-            f"{' until ' + session_end if session_end else ''}. "
+            f"Scanning every ~{config.MONITOR_INTERVAL_SECONDS}s (plus scan time)"
+            f"{' until ' + session_end + ' IST (24-hour clock)' if session_end else ''}. "
             f"Signals at score {config.MIN_SIGNAL_SCORE:.0f}+."
         )
 
