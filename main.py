@@ -293,6 +293,75 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         account.manual_close(pos, price)
         return f"\U0001F44B Recorded {symbol} closed at ₹{price:.2f}. Freed up for new trades."
 
+    def _live_price(pos):
+        snap = state["last_snap_by_symbol"].get(pos.symbol)
+        leg = next((q for q in snap.option_chain
+                    if q.strike == pos.strike and q.option_type == pos.option_type), None) if snap else None
+        return leg.ltp if leg else None
+
+    def _handle_help(_arg: str = "") -> str:
+        return (
+            "\U0001F4CB <b>Commands</b>\n"
+            "/help - this list\n"
+            "/status - is the bot scanning right now\n"
+            "/trades - open paper trades with live P&L\n"
+            "/pnl - profit and loss (booked + open)\n"
+            "/summary - today's signals, exits and P&L\n"
+            "/close SYMBOL [price] - record a position as closed\n"
+            "/hold SYMBOL - skip today's auto square-off\n"
+            "<i>I only answer while a session is running (09:15 IST onward).</i>"
+        )
+
+    def _handle_trades(_arg: str = "") -> str:
+        if not account:
+            return "Paper trading isn't enabled for this run, so there are no trades to show."
+        open_positions = [p for p in account.open_positions if p.status != "CLOSED"]
+        if not open_positions:
+            return "No open paper trades right now."
+        lines = [f"\U0001F4C2 <b>Open paper trades ({len(open_positions)})</b>"]
+        for p in open_positions:
+            price = _live_price(p)
+            if price is not None:
+                unreal = round((price - p.entry) * p.lots_remaining, 2)
+                now_txt = f"Now ₹{price:.2f} ({unreal:+.2f})"
+            else:
+                now_txt = "Now: no fresh price"
+            booked = ", ".join(sorted(p.booked_levels)) or "none"
+            lines.append(
+                f"\n<b>{p.symbol} {p.strike:.0f} {p.option_type}</b>  {p.lots_remaining}/{p.lots_total} lots\n"
+                f"Entry ₹{p.entry:.2f} | {now_txt}\n"
+                f"SL ₹{p.stoploss:.2f} | T1 ₹{p.target1:.2f} T2 ₹{p.target2:.2f} T3 ₹{p.target3:.2f}\n"
+                f"Targets booked: {booked}"
+            )
+        return "\n".join(lines)
+
+    def _handle_pnl(_arg: str = "") -> str:
+        if not account:
+            return "Paper trading isn't enabled for this run, so there's no P&L to show."
+        s = account.summary()
+        unreal, priced = 0.0, 0
+        for p in account.open_positions:
+            if p.status == "CLOSED":
+                continue
+            price = _live_price(p)
+            if price is not None:
+                unreal += (price - p.entry) * p.lots_remaining
+                priced += 1
+        realized = s["total_pnl"]
+        total = realized + unreal
+        emoji = "\U0001F4B0" if total >= 0 else "\U0001F4B8"
+        return (
+            f"{emoji} <b>P&L (paper)</b>\n"
+            f"Booked: ₹{realized:+.2f}\n"
+            f"Open (unrealised): ₹{unreal:+.2f}"
+            f"{'' if priced == s['open_or_partial'] else ' (some positions have no fresh price)'}\n"
+            f"Total: ₹{total:+.2f}\n\n"
+            f"Closed trades: {s['positions_closed']} (wins {s['wins']}, win rate {s['win_rate_pct']}%)\n"
+            f"Paper capital: ₹{s['capital']:.2f}\n"
+            f"<i>Includes {config.PAPER_SLIPPAGE_PCT}% slippage per side. Figures are per-unit "
+            f"x lots, not yet real NSE lot sizes.</i>"
+        )
+
     def _on_fill(pos, level, lots, price):
         state["day_log"]["fills"].append({
             "time": dt.datetime.now().strftime("%H:%M"),
@@ -310,6 +379,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
     telegram_commands = {
         "status": _status_text, "summary": _summary_text,
         "hold": _handle_hold, "close": _handle_close,
+        "help": _handle_help, "start": _handle_help,
+        "trades": _handle_trades, "pnl": _handle_pnl,
     }
 
     def _sleep_with_status_polling(total_seconds: float):
