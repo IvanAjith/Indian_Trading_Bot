@@ -177,7 +177,7 @@ ever open a new Terminal window, reactivate it first:
 ```bash
 cd ~/Downloads/"Claude Projects"/"Trading Bot" && source venv/bin/activate
 ```
-(`start_bot.sh` / `start_bot.bat` don't need this - they always use `./venv`
+(`start_bot.sh` doesn't need this - it always uses `./venv`
 directly regardless of what's active in your terminal.)
 
 **5. Run the watchlist scan (synthetic data, so it works right now):**
@@ -435,21 +435,30 @@ needs to run on a separate always-on machine:
 - **Free option (recommended for testing):** see **ORACLE_FREE_DEPLOY.md** -
   Oracle Cloud's Always Free tier, a real server at zero cost, indefinitely
   (uses `tradingbot-oracle.service`).
-- **Paid option (~$4-6/mo):** see **CLOUD_DEPLOY.md** - a Hostinger/
-  DigitalOcean VPS, once you're ready to commit (uses `tradingbot.service`).
 
-## Moving this to a different computer
+## Credentials and version control
+Credentials (Angel One AND Telegram) are environment variables / GitHub Secrets only - nothing
+sensitive lives in the code or git history. `.env.example` lists the names. To run locally,
+export the six variables in your shell, then `./start_bot.sh` (background) / `./stop_bot.sh`.
 
-See **RUN_ON_ANOTHER_DEVICE.md** for copying the whole setup to a different
-Mac, Windows PC (via Command Prompt - includes `start_bot.bat`/`stop_bot.bat`),
-or Linux machine.
+## Settings you may want to change (`config.py`)
 
-## Version control (GitHub)
+| Setting | What it does |
+|---|---|
+| `MIN_SIGNAL_SCORE` (70) / `WATCHLIST_MIN_SCORE` (60) | How strict signals / early heads-ups are |
+| `STOPLOSS_PCT` (18), `TARGET_PCT_T1/T2/T3` (15/30/50) | Premium-based stop and targets |
+| `MOVE_SL_TO_COST_AFTER_T1` (True) | Move the stop to entry once Target 1 is reached |
+| `MAX_CAPITAL_PER_TRADE_PCT` (5), `MAX_TRADES_PER_DAY` (3) | Risk per trade / trades per day |
+| `PAPER_SLIPPAGE_PCT` (1.0), `PAPER_STARTING_CAPITAL` | Paper-trading realism |
+| `AUTO_UNIVERSE`, `AUTO_UNIVERSE_MAX_STOCKS` (80), `FETCH_IV` | What is scanned and how fast |
+| `TB_SCAN_INTERVAL` (env var) | Pause between scans in seconds (Actions uses 10) |
 
-See **GITHUB_SETUP.md** for putting this project on GitHub so you can
-`git clone`/`git pull` it onto any device instead of manually copying files.
-As of this setup, credentials (Angel One AND Telegram) are environment-variable-only -
-nothing sensitive lives in the code, so it's safe to version control.
+## Known limitations (be honest with yourself about these)
+- Signals use **daily** RSI/EMA plus live price - not intraday candles/VWAP yet. Expect similar signals all day.
+- The "estimated win probability" is a heuristic stretch of the score, not a measured win rate.
+- OI change is measured vs the bot's first reading of the day (weak in the first minutes).
+- Polling, not streaming; option spreads/slippage can exceed the 1% assumed in paper fills.
+- No real orders are ever placed. Treat paper results as the only evidence until weeks of data say otherwise.
 
 ## Settings you may want to change (`config.py`)
 

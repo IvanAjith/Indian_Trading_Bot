@@ -4,8 +4,8 @@ __pycache__/
 
 # This project's dedicated virtual environment. NEVER commit a venv - it's
 # tied to the exact Python install/OS it was created from, so it wouldn't
-# even work on a different machine. Every device needs its own (see
-# RUN_ON_ANOTHER_DEVICE.md / GITHUB_SETUP.md for the one-time setup command).
+# even work on a different machine. Every device needs its own
+# (python3 -m venv venv && pip install -r requirements.txt).
 venv/
 
 # Angel One instrument master cache (~36MB, re-downloads automatically on

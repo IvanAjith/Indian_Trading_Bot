@@ -168,7 +168,7 @@ STATUS_POLL_INTERVAL_SECONDS = 15   # how often to check Telegram for a "status"
 # As of 2026-07-08, credentials live ONLY in environment variables - NOT in
 # this file - since this project now lives in a git repo (even a private
 # one shouldn't hold a live bot token in its history). Set these on every
-# device you run the bot from (see RUN_ON_ANOTHER_DEVICE.md):
+# device you run the bot from (on GitHub Actions: repo Secrets, see GITHUB_ACTIONS_DEPLOY.md):
 #   TB_TELEGRAM_TOKEN    - your bot's token from @BotFather
 #   TB_TELEGRAM_CHAT_ID  - your chat_id (see README "Telegram alerts")
 # telegram_notifier._get_credentials() reads these first - config.py's

@@ -118,7 +118,7 @@ class NSEDataProvider:
             raise ValueError(
                 f"NSE responded 200 but without the expected 'records' field "
                 f"for {symbol} - likely an anti-bot/challenge page rather "
-                f"than real data. Run diagnose_nse.py to see the raw response."
+                f"than real data. NSE blocks this scrape - use --broker angelone."
             )
         return payload
 
