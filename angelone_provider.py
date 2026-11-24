@@ -461,6 +461,27 @@ class AngelOneDataProvider:
               + (f" Curated symbols with no live options, skipped: {dropped}" if dropped else ""))
         return [(s, True) for s in config.INDEX_UNIVERSE] + [(s, False) for s in stocks]
 
+    def traded_today(self):
+        """True/False: does NIFTY have a daily candle dated today (i.e. NSE is
+        actually trading)? None if it can't be determined (the caller should then
+        carry on as normal - this check must never block a real trading day)."""
+        try:
+            inst = self._find_equity_or_index_token("NIFTY", True)
+            today = dt.date.today()
+            params = {
+                "exchange": "NSE", "symboltoken": inst["token"], "interval": "ONE_DAY",
+                "fromdate": (today - dt.timedelta(days=7)).strftime("%Y-%m-%d 09:00"),
+                "todate": today.strftime("%Y-%m-%d 15:30"),
+            }
+            resp = _throttled_call(self.smart_api.getCandleData, params)
+            candles = resp.get("data", []) if resp else []
+            if not candles:
+                return None
+            return str(candles[-1][0])[:10] == today.isoformat()
+        except Exception as exc:
+            print(f"[angelone] could not check whether the market traded today: {exc}")
+            return None
+
     # -- snapshots ---------------------------------------------------------
     def get_snapshots(self, universe: list) -> list:
         """Fast path: builds snapshots for the whole universe using batched

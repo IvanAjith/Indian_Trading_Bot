@@ -1,0 +1,27 @@
+name: Market holiday notice
+
+# 20:00 IST every day (14:30 UTC). Messages you only if TOMORROW is a weekday NSE holiday.
+on:
+  schedule:
+    - cron: "30 14 * * *"
+  workflow_dispatch:
+    inputs:
+      today:
+        description: "Test: pretend today is this date (YYYY-MM-DD). Leave empty for real."
+        default: ""
+
+jobs:
+  notice:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TZ: Asia/Kolkata
+      TB_TELEGRAM_TOKEN: ${{ secrets.TB_TELEGRAM_TOKEN }}
+      TB_TELEGRAM_CHAT_ID: ${{ secrets.TB_TELEGRAM_CHAT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests
+      - run: python holiday_notice.py ${{ github.event.inputs.today }}

@@ -126,7 +126,8 @@ def _fresh_day_log() -> dict:
     return {"signals": [], "fills": [], "watchlist": []}
 
 
-def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, session_end: str = None):
+def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, session_end: str = None,
+                skip_if_closed: bool = False):
     """Runs continuously, re-scanning every config.MONITOR_INTERVAL_SECONDS
     while the market is open. Unlike --mode watchlist (a single snapshot),
     this only alerts on setups NOT already alerted on today, so you get a
@@ -171,11 +172,17 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
     open paper positions are closed at the latest price, a summary is sent
     to Telegram, and the function returns. This is how the GitHub Actions
     deployment works (a bounded session, not a 24/7 process).
+
+    skip_if_closed: before scanning, wait until 09:20 IST, then confirm via live
+    data that NSE actually traded today (provider.traded_today()). If it did not
+    (exchange holiday), send one Telegram message and end the run - no stale-price
+    signals and no wasted minutes. If the check can't be answered, carry on.
     """
     state = {
         "last_scan_at": None, "alerted_today": set(), "last_signal_count": 0,
         "day_log": _fresh_day_log(), "watchlisted_today": set(),
         "eod_warned_today": set(), "last_snap_by_symbol": {},
+        "scans": 0, "symbols_scanned": 0, "closed_checked": not skip_if_closed,
         "watchlist_score_history": {},  # {(symbol, bias): last-seen score} -
                                         # used to only alert when a setup is
                                         # actually strengthening, not just
@@ -438,7 +445,10 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             closed = account.close_all(_ltp)
             print(f"[monitor] session end - closed {closed} open paper position(s).")
         if config.TELEGRAM_ENABLED:
-            send_telegram_message("\U0001F51A <b>Session ended.</b>\n" + _summary_text())
+            send_telegram_message(
+                "\U0001F51A <b>Session ended.</b>\n" + _summary_text() +
+                f"\n\n\U0001F916 Bot health: {state['scans']} scans completed, "
+                f"{state['symbols_scanned']} symbols per scan.")
 
     try:
         while True:
@@ -472,6 +482,28 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                     break
                 continue
 
+            if not state["closed_checked"]:
+                if now.strftime("%H:%M") < "09:20":
+                    _sleep_with_status_polling(min(30, config.MONITOR_INTERVAL_SECONDS + 20))
+                    continue
+                traded = None
+                for attempt in range(3):
+                    traded = provider.traded_today() if hasattr(provider, "traded_today") else None
+                    if traded is not False:
+                        break
+                    if attempt < 2:
+                        print("[monitor] no trading data for today yet - re-checking in 60s...")
+                        _sleep_with_status_polling(60)
+                state["closed_checked"] = True
+                if traded is False:
+                    print("[monitor] NSE did not trade today (holiday) - ending the run.")
+                    if config.TELEGRAM_ENABLED:
+                        send_telegram_message(
+                            f"\U0001F4C5 <b>Market closed today</b> ({dt.date.today():%A, %d %b}).\n"
+                            f"No trading data for today, so the bot is standing down - no signals today.")
+                    break
+                print("[monitor] market is trading today - scanning.")
+
             snapshots = fetch_all_snapshots(provider)
             if not snapshots:
                 feed_down_cycles += 1
@@ -490,6 +522,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             if feed_alert_sent and config.TELEGRAM_ENABLED:
                 send_telegram_message("✅ Data feed recovered, scanning normally.")
             feed_down_cycles, feed_alert_sent = 0, False
+            state["scans"] += 1
+            state["symbols_scanned"] = len(snapshots)
             snap_by_symbol = {s.symbol: s for s in snapshots}
             state["last_snap_by_symbol"] = snap_by_symbol
             ranked = rank_universe(snapshots)
@@ -660,6 +694,8 @@ if __name__ == "__main__":
                          help="with --mode monitor, also track paper positions continuously")
     parser.add_argument("--strict", action="store_true",
                          help="never fall back to mock data; fail loudly (used for unattended runs)")
+    parser.add_argument("--skip-if-closed", action="store_true",
+                         help="monitor mode: confirm via live data that NSE traded today; if not (holiday), message and exit")
     parser.add_argument("--session-end", default=None, metavar="HH:MM",
                          help="monitor mode: end the run at this IST time (closes paper positions, sends summary)")
     parser.add_argument("--max-cycles", type=int, default=None,
@@ -680,4 +716,4 @@ if __name__ == "__main__":
         run_backtest(provider)
     elif args.mode == "monitor":
         run_monitor(provider, use_paper=args.paper, max_cycles=args.max_cycles,
-                    session_end=args.session_end)
+                    session_end=args.session_end, skip_if_closed=args.skip_if_closed)
