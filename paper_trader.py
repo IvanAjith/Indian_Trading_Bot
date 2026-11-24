@@ -70,6 +70,7 @@ class PaperPosition:
     win_probability: float = 0.0
     reasons: list = field(default_factory=list)
     lot_size: int = 1
+    t1_alerted: bool = False    # True once the "Target 1 reached" alert has been sent
 
     def __post_init__(self):
         if not self.lots_by_level and self.lots_total == 1:
@@ -85,7 +86,7 @@ class PaperPosition:
 
 
 class PaperTradingAccount:
-    def __init__(self, starting_capital: float = None, log_file: str = None, on_fill=None):
+    def __init__(self, starting_capital: float = None, log_file: str = None, on_fill=None, on_t1=None):
         """on_fill, if given, is called as on_fill(position, level, lots, price)
         every time a target/stoploss/time-exit fill happens - main.py wires
         this to send a Telegram message. Kept as an optional callback so
@@ -94,6 +95,7 @@ class PaperTradingAccount:
         self.log_file = log_file or config.PAPER_LOG_FILE
         self.open_positions: list[PaperPosition] = []
         self.on_fill = on_fill
+        self.on_t1 = on_t1   # on_t1(position, price): called once when Target 1 is first reached
         self._ensure_log_header()
 
     def _ensure_log_header(self):
@@ -169,6 +171,18 @@ class PaperTradingAccount:
             if current_ltp <= pos.stoploss:
                 self._fill(pos, "SL", pos.lots_remaining, current_ltp)
                 continue
+
+            # Target 1 reached: alert once (even for single-lot trades, which have no
+            # partial exit at T1), and optionally lock the stop at cost-to-cost.
+            if not pos.t1_alerted and current_ltp >= pos.target1:
+                pos.t1_alerted = True
+                if config.MOVE_SL_TO_COST_AFTER_T1:
+                    pos.stoploss = max(pos.stoploss, pos.entry)
+                if self.on_t1:
+                    try:
+                        self.on_t1(pos, current_ltp)
+                    except Exception as exc:
+                        print(f"[paper_trader] on_t1 callback failed (not fatal): {exc}")
 
             for level, target_price in (("T1", pos.target1), ("T2", pos.target2), ("T3", pos.target3)):
                 if level in pos.booked_levels:

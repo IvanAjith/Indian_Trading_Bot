@@ -23,7 +23,7 @@ from strategy import build_trade_idea
 from paper_trader import PaperTradingAccount
 from telegram_notifier import (
     notify_new_signals, send_telegram_message, format_exit_message, poll_status_requests,
-    format_watchlist_message, format_eod_check_message,
+    format_watchlist_message, format_eod_check_message, format_t1_message,
 )
 import backtest as bt
 
@@ -373,7 +373,11 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         if config.TELEGRAM_ENABLED:
             send_telegram_message(format_exit_message(pos, level, lots, price))
 
-    account = PaperTradingAccount(on_fill=_on_fill) if use_paper else None
+    def _on_t1(pos, price):
+        if config.TELEGRAM_ENABLED:
+            send_telegram_message(format_t1_message(pos, price))
+
+    account = PaperTradingAccount(on_fill=_on_fill, on_t1=_on_t1) if use_paper else None
     today = dt.date.today()
     cycles = 0
     telegram_offset = None

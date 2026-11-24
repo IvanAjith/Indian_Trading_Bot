@@ -105,6 +105,27 @@ def format_exit_message(position, level: str, lots: int, price: float) -> str:
     )
 
 
+def format_t1_message(position, price: float) -> str:
+    """Sent once when a position first reaches Target 1."""
+    expiry_short = _format_expiry_short(position.expiry)
+    gain_pct = (price - position.entry) / position.entry * 100 if position.entry else 0.0
+    move_sl = config.MOVE_SL_TO_COST_AFTER_T1
+    sl_line = (
+        f"\U0001F512 <b>Move your stoploss to cost (cost-to-cost): ₹{position.entry:.2f}</b>\n"
+        f"The rest of the trade can no longer turn into a big loss.\n"
+        if move_sl else ""
+    )
+    return (
+        f"\U0001F3AF <b>Target 1 reached</b>\n"
+        f"{position.symbol} {expiry_short} {position.strike:.0f} {position.option_type}\n"
+        f"⏰ {_now_str()}\n\n"
+        f"Price ₹{price:.2f} ({gain_pct:+.0f}% from entry ₹{position.entry:.2f})\n\n"
+        f"{sl_line}"
+        f"Book partial profit if you hold more than one lot.\n"
+        f"Still running toward: T2 ₹{position.target2:.2f} | T3 ₹{position.target3:.2f}"
+    )
+
+
 def format_watchlist_message(result) -> str:
     """Lighter-weight than format_signal_message - for a symbol with a real
     directional bias that hasn't cleared MIN_SIGNAL_SCORE yet. `result` is a
