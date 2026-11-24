@@ -29,9 +29,11 @@ Full step-by-step (secrets, test run, health checks, free-minute budget): **[GIT
 1. Add 6 repo **Secrets**: `ANGELONE_API_KEY`, `ANGELONE_CLIENT_CODE`, `ANGELONE_PIN`,
    `ANGELONE_TOTP_SECRET`, `TB_TELEGRAM_TOKEN`, `TB_TELEGRAM_CHAT_ID` (where to find them: see the
    "Telegram alerts" and "Angel One SmartAPI setup" sections below).
-2. Optional repo **Variables**: `SESSION_END` (24-hour IST, default `10:30`; use `15:10` for the full
-   day) and `JOB_TIMEOUT_MIN` (default `100`; `360` for a full day). A private repo has 2,000 free
-   minutes/month (~80 min/day fits); a public repo is unlimited.
+2. The default session is the **full market day** (09:15-15:10 IST, summary at ~15:10) - fine for a
+   **public** repo (unlimited free minutes). For a **private** repo (2,000 free min/month) set repo
+   **Variables** `SESSION_END=10:30` and `JOB_TIMEOUT_MIN=100` (~80 min/day).
+   Holidays: a second workflow messages you at 20:00 IST if tomorrow is a weekday NSE holiday, and
+   the bot itself checks live data each morning and stands down on a closed day.
 3. Actions tab -> **NSE options signal bot** -> **Run workflow** for a test (type an end time a few
    minutes ahead, e.g. `22:45` for 10:45 PM - the clock is 24-hour).
 4. Healthy day = a "Bot started" Telegram message at ~09:15-09:30. No message = check the Actions tab.

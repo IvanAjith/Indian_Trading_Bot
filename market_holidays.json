@@ -1,0 +1,4 @@
+{
+  "_help": "Fallback holiday list used only for the 8 PM 'market closed tomorrow' notice when NSE's website can't be reached. Add weekday trading holidays as \"YYYY-MM-DD\": \"Reason\". Copy them from NSE's official list: nseindia.com -> Resources -> Exchange Communication -> Holidays. Weekends are handled automatically.",
+  "2026-12-25": "Christmas"
+}

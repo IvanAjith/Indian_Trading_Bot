@@ -25,11 +25,10 @@ paper positions and sending a summary.
 - Each run's `monitor.log` and `paper_trades.csv` are in the run page under **Artifacts** (kept 90 days).
 
 ## Free-minute budget (private repo = 2,000 min/month)
-Default session is 09:15-10:30 IST (~80 min/day, ~1,750 min/month): the most
-active part of the day. To check usage: Settings -> Billing -> Usage.
-- **Public repo** = unlimited minutes. Then set repo *Variables*
-  `SESSION_END=15:15` and `JOB_TIMEOUT_MIN=360` for a (nearly) full day.
-  (Code becomes public; credentials stay safe in Secrets.)
+The default session is now the **full day**, 09:15-15:10 IST (~6 h/day) - only suitable for a
+**public** repo (unlimited minutes). On a **private** repo set repo Variables `SESSION_END=10:30` and
+`JOB_TIMEOUT_MIN=100` (~80 min/day, ~1,750 min/month). To check usage: Settings -> Billing -> Usage.
+- **Public repo** = unlimited minutes (code, logs and artifacts become public; credentials stay safe in Secrets).
 - Change the window on a private repo with the `SESSION_END` variable
   (Settings -> Secrets and variables -> Actions -> Variables), but watch the budget.
 
@@ -47,3 +46,16 @@ stocks by open-interest value (money parked in near-the-money options) and scans
 plus your curated list in `config.py` (if they still have options), plus NIFTY/BANKNIFTY/FINNIFTY.
 Prices come ~40 per API call. Settings in `config.py`: `AUTO_UNIVERSE`, `AUTO_UNIVERSE_MAX_STOCKS`, `FETCH_IV`.
 The first scan of the day is slower (it downloads daily candles for every symbol once).
+
+## Daily summary and holidays
+- **Summary:** sent when the session ends (15:10 IST with the default full day, or `SESSION_END`),
+  with signals, exits, P&L and a bot-health line (scans completed, symbols per scan).
+- **Holiday in the morning:** the bot waits until 09:20, checks that NIFTY actually has a candle for
+  today, and if not sends "Market closed today" and ends (no stale-price signals). If the check cannot
+  be answered it carries on normally, so it can never block a real trading day.
+- **Holiday notice at 20:00 IST:** workflow `holiday-notice.yml` sends "Market closed tomorrow - <reason>"
+  only when tomorrow is a weekday NSE holiday. It reads NSE's official list; if NSE blocks GitHub, it
+  falls back to `market_holidays.json` - add weekday holidays there as `"YYYY-MM-DD": "Reason"` (copy
+  from nseindia.com -> Resources -> Exchange Communication -> Holidays). NSE publishes next year's list
+  around December, so refresh the file then. Test it: Actions -> "Market holiday notice" -> Run
+  workflow with `today` = the day before a holiday, e.g. `2026-12-24`.

@@ -10,7 +10,7 @@ on:
     inputs:
       session_end:
         description: "End the session at this IST time (HH:MM)"
-        default: "10:30"
+        default: "15:10"
 
 # Never let two sessions overlap (they would both answer Telegram commands).
 concurrency:
@@ -20,9 +20,10 @@ concurrency:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    # Backstop only - the bot ends itself at SESSION_END. Protects your free minutes
-    # if something hangs. Raise (max 360) if you make the repo public and run a longer day.
-    timeout-minutes: ${{ fromJSON(vars.JOB_TIMEOUT_MIN || '100') }}
+    # Backstop only - the bot ends itself at SESSION_END (default 15:10 = full market day,
+    # fine for a public repo). For a PRIVATE repo set repo variables SESSION_END=10:30 and
+    # JOB_TIMEOUT_MIN=100 to stay inside the 2,000 free minutes/month.
+    timeout-minutes: ${{ fromJSON(vars.JOB_TIMEOUT_MIN || '360') }}
     env:
       TZ: Asia/Kolkata
       TB_SCAN_INTERVAL: "10"
@@ -32,7 +33,7 @@ jobs:
       ANGELONE_TOTP_SECRET: ${{ secrets.ANGELONE_TOTP_SECRET }}
       TB_TELEGRAM_TOKEN: ${{ secrets.TB_TELEGRAM_TOKEN }}
       TB_TELEGRAM_CHAT_ID: ${{ secrets.TB_TELEGRAM_CHAT_ID }}
-      SESSION_END: ${{ github.event.inputs.session_end || vars.SESSION_END || '10:30' }}
+      SESSION_END: ${{ github.event.inputs.session_end || vars.SESSION_END || '15:10' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -42,7 +43,7 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Run bot until session end
         shell: bash   # enables pipefail so a crash fails the job
-        run: python -u main.py --mode monitor --paper --broker angelone --strict --session-end "$SESSION_END" 2>&1 | tee monitor.log
+        run: python -u main.py --mode monitor --paper --broker angelone --strict --skip-if-closed --session-end "$SESSION_END" 2>&1 | tee monitor.log
       - name: Save logs and paper trades
         if: always()
         uses: actions/upload-artifact@v4
