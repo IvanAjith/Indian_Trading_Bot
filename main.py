@@ -94,6 +94,8 @@ def run_paper(provider):
     ideas = run_watchlist(provider)
     for idea in ideas[:config.MAX_TRADES_PER_DAY]:
         pos = account.open_trade(idea)
+        if pos is None:
+            continue
         print(
             f"[paper] opened {pos.lots_total} lot(s) of {pos.symbol} {pos.option_type} "
             f"{pos.strike} @ {pos.entry}  (booking plan: {pos.lots_by_level})"
@@ -322,7 +324,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         for p in open_positions:
             price = _live_price(p)
             if price is not None:
-                unreal = round((price - p.entry) * p.lots_remaining, 2)
+                unreal = round((price - p.entry) * p.lots_remaining * p.lot_size, 2)
                 now_txt = f"Now ₹{price:.2f} ({unreal:+.2f})"
             else:
                 now_txt = "Now: no fresh price"
@@ -345,7 +347,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 continue
             price = _live_price(p)
             if price is not None:
-                unreal += (price - p.entry) * p.lots_remaining
+                unreal += (price - p.entry) * p.lots_remaining * p.lot_size
                 priced += 1
         realized = s["total_pnl"]
         total = realized + unreal
@@ -358,8 +360,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             f"Total: ₹{total:+.2f}\n\n"
             f"Closed trades: {s['positions_closed']} (wins {s['wins']}, win rate {s['win_rate_pct']}%)\n"
             f"Paper capital: ₹{s['capital']:.2f}\n"
-            f"<i>Includes {config.PAPER_SLIPPAGE_PCT}% slippage per side. Figures are per-unit "
-            f"x lots, not yet real NSE lot sizes.</i>"
+            f"<i>Includes {config.PAPER_SLIPPAGE_PCT}% slippage per side, real lot sizes.</i>"
         )
 
     def _on_fill(pos, level, lots, price):
@@ -367,7 +368,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             "time": dt.datetime.now().strftime("%H:%M"),
             "symbol": pos.symbol, "option_type": pos.option_type, "strike": pos.strike,
             "level": level, "lots": lots, "price": price,
-            "pnl": round((price - pos.entry) * lots, 2),
+            "pnl": round((price - pos.entry) * lots * pos.lot_size, 2),
         })
         if config.TELEGRAM_ENABLED:
             send_telegram_message(format_exit_message(pos, level, lots, price))
@@ -568,6 +569,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                     room = max(config.MAX_TRADES_PER_DAY - open_count, 0)
                     for idea in new_ideas[:room]:
                         pos = account.open_trade(idea)
+                        if pos is None:
+                            continue
                         print(f"[paper] opened {pos.lots_total} lot(s) of {pos.symbol} {pos.option_type} {pos.strike}")
             else:
                 print(f"[monitor] {now:%H:%M} - no new signals this cycle "

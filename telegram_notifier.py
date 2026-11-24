@@ -63,6 +63,8 @@ def format_signal_message(idea) -> str:
         f"\U0001F3AF Target 2: ₹{idea.target2:.2f}\n"
         f"\U0001F3AF Target 3: ₹{idea.target3:.2f}\n"
         f"\U0001F6D1 Stoploss: ₹{idea.stoploss:.2f}\n\n"
+        f"\U0001F4E6 Lot size {idea.lot_size} | 1 lot costs ₹{idea.entry * idea.lot_size:,.0f} | "
+        f"max loss at SL ≈ ₹{(idea.entry - idea.stoploss) * idea.lot_size:,.0f} per lot\n\n"
         f"\U0001F4CA Score: {idea.score:.0f}/100\n"
         f"\U0001F4C8 Est. success probability: {idea.win_probability:.0f}% "
         f"<i>(heuristic, not a guarantee)</i>\n\n"
@@ -86,7 +88,7 @@ def format_exit_message(position, level: str, lots: int, price: float) -> str:
     (partial target booked, stoploss hit, or the 3:15pm time exit)."""
     expiry_short = _format_expiry_short(position.expiry)
     reason = _EXIT_REASON_LABELS.get(level, level)
-    pnl = round((price - position.entry) * lots, 2)
+    pnl = round((price - position.entry) * lots * position.lot_size, 2)
     pnl_emoji = "\U0001F4B0" if pnl >= 0 else "\U0001F4B8"
     remaining = position.lots_remaining
     status_line = (
@@ -132,7 +134,7 @@ def format_eod_check_message(pos, current_ltp: float) -> str:
     FORCE_EXIT_TIME for any position still open, so you can decide to hold
     it overnight instead of letting the automatic square-off happen."""
     expiry_short = _format_expiry_short(pos.expiry)
-    pnl_if_closed = round((current_ltp - pos.entry) * pos.lots_remaining, 2)
+    pnl_if_closed = round((current_ltp - pos.entry) * pos.lots_remaining * pos.lot_size, 2)
     pnl_emoji = "\U0001F4B0" if pnl_if_closed >= 0 else "\U0001F4B8"
     return (
         f"⏳ <b>End-of-day check-in</b>\n"

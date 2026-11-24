@@ -43,6 +43,7 @@ class OptionQuote:
     oi_change_pct: float
     iv: float
     volume: int
+    lot_size: int = 1   # units per lot (e.g. NIFTY 75). P&L = price move x lots x lot_size
 
 
 @dataclass
@@ -159,6 +160,7 @@ class NSEDataProvider:
                     oi_change_pct=leg.get("pchangeinOpenInterest", 0.0),
                     iv=leg.get("impliedVolatility", 0.0),
                     volume=leg.get("totalTradedVolume", 0),
+                    lot_size=1,   # NSE site feed does not give lot size; use --broker angelone for real sizes
                 ))
         hist = self.get_historical_daily(symbol)
         return UnderlyingSnapshot(
@@ -228,6 +230,7 @@ class MockDataProvider:
                     oi_change_pct=round(self.rng.uniform(-20, 30), 2),
                     iv=round(self.rng.uniform(14, 45), 2),
                     volume=int(self.rng.uniform(1e4, 2e5)),
+                    lot_size=75 if is_index else max(5, int(round(600000 / spot / 5)) * 5),
                 ))
 
         return UnderlyingSnapshot(
