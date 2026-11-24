@@ -25,7 +25,7 @@ jobs:
     timeout-minutes: ${{ fromJSON(vars.JOB_TIMEOUT_MIN || '100') }}
     env:
       TZ: Asia/Kolkata
-      TB_SCAN_INTERVAL: "30"
+      TB_SCAN_INTERVAL: "10"
       ANGELONE_API_KEY: ${{ secrets.ANGELONE_API_KEY }}
       ANGELONE_CLIENT_CODE: ${{ secrets.ANGELONE_CLIENT_CODE }}
       ANGELONE_PIN: ${{ secrets.ANGELONE_PIN }}

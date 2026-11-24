@@ -14,6 +14,22 @@ you want to adjust risk or behaviour.
 # https://archives.nseindia.com/content/fo/fo_mktlots.csv
 INDEX_UNIVERSE = ["NIFTY", "BANKNIFTY", "FINNIFTY"]
 
+# With the Angel One feed, the stock list below is only a "must keep" list.
+# If AUTO_UNIVERSE is on, the bot also reads the live F&O contract list at the
+# start of each day, ranks every F&O stock by how much money is parked in its
+# near-the-money options (open interest value) and scans the top
+# AUTO_UNIVERSE_MAX_STOCKS, plus everything in STOCK_UNIVERSE that still has
+# live options. Wider coverage = a longer scan cycle (each ~40 option contracts
+# cost one API call), so keep the number moderate.
+AUTO_UNIVERSE = True
+AUTO_UNIVERSE_MAX_STOCKS = 80
+
+# Implied volatility needs one extra API call per symbol (every 5 min). It is
+# currently a 10% score input that comes out the same for almost every symbol
+# (it is compared against the same option chain it came from), so it is OFF by
+# default - scores are unchanged, scans are much faster. Turn on to experiment.
+FETCH_IV = False
+
 STOCK_UNIVERSE = [
     "RELIANCE", "HDFCBANK", "ICICIBANK", "INFY", "TCS", "SBIN", "AXISBANK",
     "KOTAKBANK", "LT", "ITC", "BHARTIARTL", "MARUTI",

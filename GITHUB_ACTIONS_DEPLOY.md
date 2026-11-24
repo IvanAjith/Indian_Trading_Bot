@@ -1,7 +1,7 @@
 # Running the bot on GitHub Actions (free)
 
 The bot runs as a scheduled GitHub job: every trading day at ~09:15 IST it
-starts, scans every ~30 seconds (plus the time each scan takes), sends
+starts, scans continuously (a 10-second pause plus the scan itself, which takes roughly a minute for the full ~85-symbol list - an estimate, check monitor.log for the real figure), sends
 Telegram alerts, and ends itself at the session end time, closing any open
 paper positions and sending a summary.
 
@@ -40,3 +40,10 @@ active part of the day. To check usage: Settings -> Billing -> Usage.
 - Telegram commands (`status`, `summary`, `hold`, `close`) work only while a session is running.
 - Angel One may restrict API access by IP; GitHub runners have changing IPs.
   If login fails you will get a "Bot could not start" message.
+
+## What gets scanned
+At the start of each day the bot reads Angel One's live F&O contract list, ranks the
+stocks by open-interest value (money parked in near-the-money options) and scans the top 80,
+plus your curated list in `config.py` (if they still have options), plus NIFTY/BANKNIFTY/FINNIFTY.
+Prices come ~40 per API call. Settings in `config.py`: `AUTO_UNIVERSE`, `AUTO_UNIVERSE_MAX_STOCKS`, `FETCH_IV`.
+The first scan of the day is slower (it downloads daily candles for every symbol once).

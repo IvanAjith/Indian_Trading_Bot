@@ -46,6 +46,7 @@ import pandas as pd
 import requests
 
 from data_fetcher import UnderlyingSnapshot, OptionQuote
+import config
 
 INSTRUMENT_MASTER_URL = (
     "https://margincalculator.angelone.in/OpenAPI_File/files/OpenAPIScripMaster.json"
@@ -124,6 +125,9 @@ def _require_credentials() -> dict:
 
 
 class AngelOneDataProvider:
+    STRIKES_EACH_SIDE = 3     # ATM +/- this many strikes, per option type
+    MAX_TOKENS_PER_REQUEST = 40   # Angel One's getMarketData rejects overly large batches
+
     def __init__(self):
         try:
             from SmartApi import SmartConnect
@@ -142,12 +146,16 @@ class AngelOneDataProvider:
             raise RuntimeError(f"Angel One login failed: {session}")
 
         self.instruments = self._load_instrument_master()
+        self._build_indexes()
         self._history_cache = {}   # {(exchange, token): (fetched_at, DataFrame)}
-        self._history_cache_max_age = 1800  # 30 min - daily candles barely change
-                                             # intraday except today's row, so a
-                                             # continuous monitor loop shouldn't
-                                             # re-fetch this every single cycle
+        self._history_cache_max_age = 4 * 3600   # daily candles barely change intraday; the live
+                                                 # price is patched into today's row on every scan
+                                                 # (see _with_live_today), so re-fetching every
+                                                 # 30 min (a ~100 s stall for ~80 symbols) isn't needed
         self._iv_cache = {}        # {(symbol, expiry): (fetched_at, iv_map)}
+        self._universe_cache = None   # (date, [(symbol, is_index), ...])
+        self._oi_state = None      # lazily loaded {date: {token: first_oi}}
+        self._oi_dirty = False
 
     # -- instrument master -------------------------------------------------
     def _load_instrument_master(self) -> list:
@@ -164,31 +172,37 @@ class AngelOneDataProvider:
             json.dump(instruments, f)
         return instruments
 
+    def _build_indexes(self):
+        """One pass over the (huge) instrument master so lookups are dict hits
+        instead of re-scanning ~100k+ rows for every symbol on every scan."""
+        self._eq_index = {}    # "RELIANCE" -> NSE cash instrument
+        self._idx_index = {}   # "NIFTY"    -> NSE index instrument
+        self._opt_index = {}   # (OPTSTK|OPTIDX, "RELIANCE") -> [NFO option instruments]
+        for i in self.instruments:
+            seg = i.get("exch_seg")
+            if seg == "NSE":
+                if i.get("instrumenttype", "") == INDEX_INSTRUMENT_TYPE:
+                    self._idx_index.setdefault(i.get("name", "").upper(), i)
+                sym = i.get("symbol", "")
+                if sym.endswith("-EQ"):
+                    self._eq_index.setdefault(sym[:-3], i)
+            elif seg == "NFO" and i.get("instrumenttype") in ("OPTIDX", "OPTSTK"):
+                self._opt_index.setdefault((i["instrumenttype"], i.get("name", "").upper()), []).append(i)
+
     def _find_equity_or_index_token(self, symbol: str, is_index: bool) -> dict:
-        if is_index:
-            matches = [i for i in self.instruments
-                       if i.get("exch_seg") == "NSE" and i.get("name", "").upper() == symbol.upper()
-                       and i.get("instrumenttype", "") == INDEX_INSTRUMENT_TYPE]
-        else:
-            matches = [i for i in self.instruments
-                       if i.get("exch_seg") == "NSE" and i.get("symbol", "") == f"{symbol}-EQ"]
-        if not matches:
+        inst = self._idx_index.get(symbol.upper()) if is_index else self._eq_index.get(symbol)
+        if not inst:
             raise ValueError(f"No instrument token found for {symbol} (is_index={is_index}) "
                               f"- run diagnose_angelone.py to inspect the instrument master.")
-        return matches[0]
+        return inst
 
     def _find_option_instruments(self, symbol: str, is_index: bool) -> list:
         # IMPORTANT: Angel One's instrument master lists the same underlying's
         # options on BOTH NSE (exch_seg "NFO") and BSE (exch_seg "BFO"). We
         # only want NFO - mixing them causes "Symbol token not found in scrip
         # master cache for the given exchange" errors on the LTP call.
-        prefix = symbol.upper()
         opt_type = "OPTIDX" if is_index else "OPTSTK"
-        matches = [i for i in self.instruments
-                   if i.get("instrumenttype") == opt_type
-                   and i.get("name", "").upper() == prefix
-                   and i.get("exch_seg") == "NFO"]
-        return matches
+        return self._opt_index.get((opt_type, symbol.upper()), [])
 
     @staticmethod
     def _parse_expiry(expiry: str) -> dt.date:
@@ -201,6 +215,23 @@ class AngelOneDataProvider:
     def _get_ltp(self, exchange: str, tradingsymbol: str, token: str) -> float:
         data = _throttled_call(self.smart_api.ltpData, exchange, tradingsymbol, token)
         return float(data["data"]["ltp"])
+
+    def _market_data(self, exchange: str, tokens: list) -> dict:
+        """Batched getMarketData("FULL") -> {token(str): row}. One API call per
+        MAX_TOKENS_PER_REQUEST tokens instead of one call per symbol - this is
+        what makes scanning a wide universe fast. A failed batch is logged and
+        skipped (callers fall back / skip the affected symbols)."""
+        out = {}
+        for i in range(0, len(tokens), self.MAX_TOKENS_PER_REQUEST):
+            chunk = tokens[i:i + self.MAX_TOKENS_PER_REQUEST]
+            try:
+                resp = _throttled_call(self.smart_api.getMarketData, "FULL", {exchange: chunk})
+            except Exception as exc:
+                print(f"[angelone] getMarketData {exchange} batch of {len(chunk)} failed: {exc}")
+                continue
+            for row in (resp.get("data", {}).get("fetched", []) if resp else []):
+                out[str(row.get("symbolToken"))] = row
+        return out
 
     def _get_historical_daily(self, exchange: str, token: str, days: int = 60) -> pd.DataFrame:
         cache_key = (exchange, token)
@@ -235,11 +266,27 @@ class AngelOneDataProvider:
         self._history_cache[cache_key] = (time.time(), df)
         return df
 
+    @staticmethod
+    def _with_live_today(history: pd.DataFrame, spot: float) -> pd.DataFrame:
+        """If the last candle is today's, update its close/high/low with the
+        live price, so RSI/EMA/breakout checks see the current price even though
+        the daily history itself is only fetched occasionally."""
+        if history is None or history.empty or "CH_TIMESTAMP" not in history:
+            return history
+        if str(history["CH_TIMESTAMP"].iloc[-1]) != dt.date.today().isoformat():
+            return history
+        df = history.copy()
+        idx = df.index[-1]
+        df.loc[idx, "CH_CLOSING_PRICE"] = float(spot)
+        df.loc[idx, "CH_TRADE_HIGH_PRICE"] = max(float(df.loc[idx, "CH_TRADE_HIGH_PRICE"]), float(spot))
+        df.loc[idx, "CH_TRADE_LOW_PRICE"] = min(float(df.loc[idx, "CH_TRADE_LOW_PRICE"]), float(spot))
+        return df
+
     def _load_iv_map(self, symbol: str, expiry: str) -> dict:
         """Best-effort IV lookup via the optionGreek endpoint, keyed by
         (strike, option_type). Returns {} on any failure - IV just scores
         neutral (50th percentile) if unavailable rather than breaking the run.
-        Cached briefly (5 min) - IV doesn't need refreshing every monitor cycle."""
+        Cached briefly (5 min). Only called when config.FETCH_IV is True."""
         cache_key = (symbol, expiry)
         cached = self._iv_cache.get(cache_key)
         if cached and time.time() - cached[0] < 300:
@@ -261,87 +308,81 @@ class AngelOneDataProvider:
             return {}
 
     def _oi_change_pct(self, token: str, current_oi: int, cache_file: str = "angelone_oi_history.json") -> float:
-        """SmartAPI's LTP call only gives today's current OI, not the change -
-        so we track our own snapshots locally and diff against the earliest
-        reading of the day (a simple stand-in for 'OI buildup since morning')."""
+        """SmartAPI's quote call only gives today's current OI, not the change -
+        so we track our own readings and diff against the earliest reading of
+        the day (a simple stand-in for 'OI buildup since morning').
+        Kept in memory during a scan and written to disk once per scan
+        (flush_oi_baseline) instead of rewriting the file for every option."""
         today = dt.date.today().isoformat()
-        history = {}
-        if os.path.exists(cache_file):
-            try:
-                with open(cache_file) as f:
-                    history = json.load(f)
-            except Exception:
-                history = {}
-
-        day_entry = history.get(today, {})
+        if self._oi_state is None:
+            self._oi_state = {}
+            if os.path.exists(cache_file):
+                try:
+                    with open(cache_file) as f:
+                        self._oi_state = json.load(f)
+                except Exception:
+                    self._oi_state = {}
+        day_entry = self._oi_state.setdefault(today, {})
         first_oi = day_entry.get(token)
         if first_oi is None:
             day_entry[token] = current_oi
             first_oi = current_oi
-        history[today] = day_entry
-        # keep only today + yesterday to stop the file growing forever
-        history = {k: v for k, v in sorted(history.items())[-2:]}
-        with open(cache_file, "w") as f:
-            json.dump(history, f)
-
+            self._oi_dirty = True
         if not first_oi:
             return 0.0
         return round((current_oi - first_oi) / first_oi * 100, 2)
 
-    STRIKES_EACH_SIDE = 3     # ATM +/- this many strikes, per option type
-    MAX_TOKENS_PER_REQUEST = 40   # Angel One's getMarketData rejects overly large batches
+    def flush_oi_baseline(self, cache_file: str = "angelone_oi_history.json"):
+        if not self._oi_dirty or self._oi_state is None:
+            return
+        # keep only today + yesterday to stop the file growing forever
+        self._oi_state = {k: v for k, v in sorted(self._oi_state.items())[-2:]}
+        try:
+            with open(cache_file, "w") as f:
+                json.dump(self._oi_state, f)
+        except Exception as exc:
+            print(f"[angelone] could not save OI baseline (not fatal): {exc}")
+        self._oi_dirty = False
 
-    def _get_option_chain(self, symbol: str, is_index: bool, spot: float) -> list:
+    # -- option chain helpers --------------------------------------------
+    def _pick_near_atm(self, symbol: str, is_index: bool, spot: float, strikes_each_side: int = None):
+        """Nearest-expiry option instruments around the money: (expiry, [instruments])."""
         instruments = self._find_option_instruments(symbol, is_index)
         if not instruments:
-            return []
+            return None, []
+        today = dt.date.today()
         expiries = sorted(set(i["expiry"] for i in instruments if i.get("expiry")),
                           key=self._parse_expiry)
+        expiries = [e for e in expiries if self._parse_expiry(e) >= today] or expiries
         if not expiries:
-            return []
+            return None, []
         nearest_expiry = expiries[0]
         this_expiry = [i for i in instruments if i["expiry"] == nearest_expiry]
 
         # Fixed-count window around ATM instead of a %-band - a %-band scales
         # unpredictably with each stock's strike spacing and is what blew past
         # Angel One's per-call token limit on a stock with fine strike steps.
+        n = self.STRIKES_EACH_SIDE if strikes_each_side is None else strikes_each_side
         near_atm = []
         for opt_type in ("CE", "PE"):
             side = [i for i in this_expiry if i["symbol"].endswith(opt_type)]
             side.sort(key=lambda i: abs(float(i["strike"]) / 100 - spot))
-            near_atm.extend(side[: self.STRIKES_EACH_SIDE * 2 + 1])
+            near_atm.extend(side[: n * 2 + 1])
+        return nearest_expiry, near_atm
 
-        iv_map = self._load_iv_map(symbol, nearest_expiry)
-
-        # VERIFIED via diagnose_angelone.py: ltpData does NOT include OI/volume
-        # for options - only getMarketData("FULL", ...) does, under
-        # data.fetched[i].opnInterest / .tradeVolume (confirmed field names).
-        # Batched calls, chunked to stay under Angel One's per-request token cap.
-        by_token = {inst["token"]: inst for inst in near_atm}
+    def _quotes_from_rows(self, symbol: str, expiry: str, near_atm: list, rows: dict) -> list:
+        iv_map = self._load_iv_map(symbol, expiry) if config.FETCH_IV else {}
         quotes = []
-        if not by_token:
-            return quotes
-
-        tokens = list(by_token.keys())
-        fetched = []
-        for i in range(0, len(tokens), self.MAX_TOKENS_PER_REQUEST):
-            chunk = tokens[i:i + self.MAX_TOKENS_PER_REQUEST]
-            try:
-                resp = _throttled_call(self.smart_api.getMarketData, "FULL", {"NFO": chunk})
-                fetched.extend(resp.get("data", {}).get("fetched", []) if resp else [])
-            except Exception:
-                continue
-
-        for row in fetched:
-            inst = by_token.get(str(row.get("symbolToken")))
-            if not inst:
+        for inst in near_atm:
+            row = rows.get(str(inst["token"]))
+            if not row:
                 continue
             strike = float(inst["strike"]) / 100  # Angel One stores strike * 100
             option_type = "CE" if inst["symbol"].endswith("CE") else "PE"
             current_oi = int(row.get("opnInterest", 0) or 0)
             quotes.append(OptionQuote(
                 symbol=symbol,
-                expiry=nearest_expiry,
+                expiry=expiry,
                 strike=strike,
                 option_type=option_type,
                 ltp=float(row.get("ltp", 0)),
@@ -353,13 +394,121 @@ class AngelOneDataProvider:
             ))
         return quotes
 
-    def get_underlying_snapshot(self, symbol: str, is_index: bool = False) -> UnderlyingSnapshot:
-        inst = self._find_equity_or_index_token(symbol, is_index)
-        exchange = "NSE"
-        spot = self._get_ltp(exchange, inst["symbol"], inst["token"])
-        history = self._get_historical_daily(exchange, inst["token"])
-        option_chain = self._get_option_chain(symbol, is_index, spot)
+    def _get_option_chain(self, symbol: str, is_index: bool, spot: float) -> list:
+        """Single-symbol path (used by get_underlying_snapshot / diagnostics)."""
+        nearest_expiry, near_atm = self._pick_near_atm(symbol, is_index, spot)
+        if not near_atm:
+            return []
+        # VERIFIED via diagnose_angelone.py: ltpData does NOT include OI/volume
+        # for options - only getMarketData("FULL", ...) does, under
+        # data.fetched[i].opnInterest / .tradeVolume (confirmed field names).
+        rows = self._market_data("NFO", [i["token"] for i in near_atm])
+        return self._quotes_from_rows(symbol, nearest_expiry, near_atm, rows)
 
+    # -- universe --------------------------------------------------------
+    def get_universe(self) -> list:
+        """[(symbol, is_index), ...] to scan today. With config.AUTO_UNIVERSE the
+        stock list is built from the live F&O contract list, keeping the most
+        liquid names (by open interest value) plus your curated list; otherwise
+        the curated config list is used as-is. Built once per day."""
+        today = dt.date.today()
+        if self._universe_cache and self._universe_cache[0] == today:
+            return self._universe_cache[1]
+        core = [(s, True) for s in config.INDEX_UNIVERSE] + [(s, False) for s in config.STOCK_UNIVERSE]
+        universe = core
+        if config.AUTO_UNIVERSE:
+            try:
+                universe = self._build_auto_universe(core)
+            except Exception as exc:
+                print(f"[angelone] auto-universe failed ({exc}); using the curated list instead.")
+                universe = core
+        self._universe_cache = (today, universe)
+        return universe
+
+    def _build_auto_universe(self, core: list) -> list:
+        curated_stocks = [s for s, is_idx in core if not is_idx]
+        candidates = sorted(n for (t, n) in self._opt_index if t == "OPTSTK" and n in self._eq_index)
+        if not candidates:
+            raise RuntimeError("no F&O stocks found in the instrument master")
+
+        spots = self._market_data("NSE", [self._eq_index[n]["token"] for n in candidates])
+        meta, tokens = {}, []
+        for n in candidates:
+            row = spots.get(str(self._eq_index[n]["token"]))
+            if not row or not row.get("ltp"):
+                continue
+            spot = float(row["ltp"])
+            _, near = self._pick_near_atm(n, False, spot, strikes_each_side=1)   # 3 strikes x CE/PE
+            if near:
+                meta[n] = (spot, near)
+                tokens.extend(i["token"] for i in near)
+        if not meta:
+            raise RuntimeError("no live prices returned for the F&O stock list")
+
+        rows = self._market_data("NFO", list(dict.fromkeys(tokens)))
+        scored = []
+        for n, (spot, near) in meta.items():
+            oi = sum(int(rows.get(str(i["token"]), {}).get("opnInterest", 0) or 0) for i in near)
+            lot = int(float(near[0].get("lotsize", 1) or 1))
+            scored.append((oi * lot * spot, n))      # open interest value in rupees
+        scored.sort(reverse=True)
+
+        top = [n for _, n in scored[:config.AUTO_UNIVERSE_MAX_STOCKS]]
+        stocks = list(dict.fromkeys(top + [s for s in curated_stocks if s in meta]))
+        dropped = [s for s in curated_stocks if s not in meta]
+        print(f"[angelone] auto-universe: {len(candidates)} F&O stocks found, scanning "
+              f"{len(stocks)} (top {config.AUTO_UNIVERSE_MAX_STOCKS} by open interest value + your curated list)."
+              + (f" Curated symbols with no live options, skipped: {dropped}" if dropped else ""))
+        return [(s, True) for s in config.INDEX_UNIVERSE] + [(s, False) for s in stocks]
+
+    # -- snapshots ---------------------------------------------------------
+    def get_snapshots(self, universe: list) -> list:
+        """Fast path: builds snapshots for the whole universe using batched
+        quote calls (~40 tokens per API call) instead of several calls per
+        symbol. Symbols that fail are skipped, not fatal."""
+        insts = {}
+        for sym, is_index in universe:
+            try:
+                insts[sym] = self._find_equity_or_index_token(sym, is_index)
+            except Exception as exc:
+                print(f"[angelone] skip {sym}: {exc}")
+
+        spot_rows = self._market_data("NSE", [i["token"] for i in insts.values()])
+
+        plan, all_tokens = [], []
+        for sym, is_index in universe:
+            inst = insts.get(sym)
+            if not inst:
+                continue
+            try:
+                row = spot_rows.get(str(inst["token"]))
+                if row and row.get("ltp"):
+                    spot = float(row["ltp"])
+                else:   # batch gave nothing for this symbol - fall back to the single call
+                    spot = self._get_ltp("NSE", inst["symbol"], inst["token"])
+                nearest, near = self._pick_near_atm(sym, is_index, spot)
+            except Exception as exc:
+                print(f"[angelone] skip {sym}: {exc}")
+                continue
+            plan.append((sym, inst, spot, nearest, near))
+            all_tokens.extend(i["token"] for i in near)
+
+        option_rows = self._market_data("NFO", list(dict.fromkeys(all_tokens)))
+
+        snapshots = []
+        for sym, inst, spot, nearest, near in plan:
+            try:
+                history = self._with_live_today(
+                    self._get_historical_daily("NSE", inst["token"]), spot)
+                chain = self._quotes_from_rows(sym, nearest, near, option_rows) if near else []
+                snapshots.append(self._make_snapshot(sym, spot, history, chain))
+            except Exception as exc:
+                print(f"[angelone] skip {sym}: {exc}")
+        self.flush_oi_baseline()
+        return snapshots
+
+    @staticmethod
+    def _make_snapshot(symbol, spot, history, option_chain) -> UnderlyingSnapshot:
         return UnderlyingSnapshot(
             symbol=symbol,
             spot=spot,
@@ -369,3 +518,12 @@ class AngelOneDataProvider:
             history=history,
             option_chain=option_chain,
         )
+
+    def get_underlying_snapshot(self, symbol: str, is_index: bool = False) -> UnderlyingSnapshot:
+        inst = self._find_equity_or_index_token(symbol, is_index)
+        exchange = "NSE"
+        spot = self._get_ltp(exchange, inst["symbol"], inst["token"])
+        history = self._with_live_today(self._get_historical_daily(exchange, inst["token"]), spot)
+        option_chain = self._get_option_chain(symbol, is_index, spot)
+        self.flush_oi_baseline()
+        return self._make_snapshot(symbol, spot, history, option_chain)
