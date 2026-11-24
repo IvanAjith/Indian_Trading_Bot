@@ -115,7 +115,7 @@ def _fresh_day_log() -> dict:
     return {"signals": [], "fills": [], "watchlist": []}
 
 
-def run_monitor(provider, use_paper: bool = False, max_cycles: int = None):
+def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, session_end: str = None):
     """Runs continuously, re-scanning every config.MONITOR_INTERVAL_SECONDS
     while the market is open. Unlike --mode watchlist (a single snapshot),
     this only alerts on setups NOT already alerted on today, so you get a
@@ -155,6 +155,11 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None):
         current P&L and explaining the hold/close commands above.
 
     max_cycles is for testing (--mock) only - leave None for real use.
+
+    session_end ("HH:MM", IST): if given, the run ends itself at that time -
+    open paper positions are closed at the latest price, a summary is sent
+    to Telegram, and the function returns. This is how the GitHub Actions
+    deployment works (a bounded session, not a 24/7 process).
     """
     state = {
         "last_scan_at": None, "alerted_today": set(), "last_signal_count": 0,
@@ -322,9 +327,34 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None):
           f"Market hours {config.MARKET_OPEN_TIME}-{config.MARKET_CLOSE_TIME} IST. "
           f"Runs 24/7 (idling outside market hours) until you Ctrl+C.")
 
+    feed_down_cycles = 0
+    feed_alert_sent = False
+    if config.TELEGRAM_ENABLED:
+        send_telegram_message(
+            f"\U0001F7E2 <b>Bot started</b> {dt.datetime.now():%d %b %H:%M} IST\n"
+            f"Scanning every {config.MONITOR_INTERVAL_SECONDS // 60} min"
+            f"{' until ' + session_end if session_end else ''}. "
+            f"Signals at score {config.MIN_SIGNAL_SCORE:.0f}+."
+        )
+
+    def _end_session():
+        if account:
+            def _ltp(pos):
+                snap = state["last_snap_by_symbol"].get(pos.symbol)
+                leg = next((q for q in snap.option_chain
+                            if q.strike == pos.strike and q.option_type == pos.option_type), None) if snap else None
+                return leg.ltp if leg else None
+            closed = account.close_all(_ltp)
+            print(f"[monitor] session end - closed {closed} open paper position(s).")
+        if config.TELEGRAM_ENABLED:
+            send_telegram_message("\U0001F51A <b>Session ended.</b>\n" + _summary_text())
+
     try:
         while True:
             now = dt.datetime.now()
+            if session_end and now.strftime("%H:%M") >= session_end:
+                _end_session()
+                break
             if now.date() != today:
                 state["alerted_today"] = set()
                 state["watchlisted_today"] = set()
@@ -352,6 +382,23 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None):
                 continue
 
             snapshots = fetch_all_snapshots(provider)
+            if not snapshots:
+                feed_down_cycles += 1
+                print(f"[monitor] {now:%H:%M} - NO data this cycle ({feed_down_cycles} in a row).")
+                if feed_down_cycles >= 2 and not feed_alert_sent and config.TELEGRAM_ENABLED:
+                    feed_alert_sent = True
+                    send_telegram_message(
+                        "⚠️ <b>Data feed is down</b> - no market data for "
+                        f"{feed_down_cycles} scans in a row. No signals until it recovers."
+                    )
+                cycles += 1
+                if max_cycles and cycles >= max_cycles:
+                    break
+                _sleep_with_status_polling(config.MONITOR_INTERVAL_SECONDS)
+                continue
+            if feed_alert_sent and config.TELEGRAM_ENABLED:
+                send_telegram_message("✅ Data feed recovered, scanning normally.")
+            feed_down_cycles, feed_alert_sent = 0, False
             snap_by_symbol = {s.symbol: s for s in snapshots}
             state["last_snap_by_symbol"] = snap_by_symbol
             ranked = rank_universe(snapshots)
@@ -518,11 +565,19 @@ if __name__ == "__main__":
                          help="live data source when not using --mock")
     parser.add_argument("--paper", action="store_true",
                          help="with --mode monitor, also track paper positions continuously")
+    parser.add_argument("--strict", action="store_true",
+                         help="never fall back to mock data; fail loudly (used for unattended runs)")
+    parser.add_argument("--session-end", default=None, metavar="HH:MM",
+                         help="monitor mode: end the run at this IST time (closes paper positions, sends summary)")
     parser.add_argument("--max-cycles", type=int, default=None,
                          help="testing only: stop monitor after N cycles instead of running to market close")
     args = parser.parse_args()
 
-    provider = get_provider(prefer_live=not args.mock, broker=args.broker)
+    try:
+        provider = get_provider(prefer_live=not args.mock, broker=args.broker, strict=args.strict)
+    except Exception as exc:
+        send_telegram_message(f"❌ <b>Bot could not start</b>: {exc}")
+        raise
 
     if args.mode == "watchlist":
         run_watchlist(provider)
@@ -531,4 +586,5 @@ if __name__ == "__main__":
     elif args.mode == "backtest":
         run_backtest(provider)
     elif args.mode == "monitor":
-        run_monitor(provider, use_paper=args.paper, max_cycles=args.max_cycles)
+        run_monitor(provider, use_paper=args.paper, max_cycles=args.max_cycles,
+                    session_end=args.session_end)
