@@ -37,12 +37,23 @@ CONSECUTIVE_FAILURE_LIMIT = 5  # abort the run instead of grinding through
                                # the whole universe once the feed is clearly down
 
 
+def _default_universe():
+    return [(s, True) for s in config.INDEX_UNIVERSE] + [(s, False) for s in config.STOCK_UNIVERSE]
+
+
 def fetch_all_snapshots(provider):
+    universe = provider.get_universe() if hasattr(provider, "get_universe") else _default_universe()
+
+    # Fast path: providers that can fetch many symbols per API call (Angel One).
+    if hasattr(provider, "get_snapshots"):
+        try:
+            return provider.get_snapshots(universe)
+        except Exception as exc:
+            print(f"[main] batch fetch failed ({exc}); falling back to one symbol at a time.")
+
     snapshots = []
     consecutive_failures = 0
-
-    for sym, is_index in [(s, True) for s in config.INDEX_UNIVERSE] + \
-                          [(s, False) for s in config.STOCK_UNIVERSE]:
+    for sym, is_index in universe:
         try:
             snapshots.append(provider.get_underlying_snapshot(sym, is_index=is_index))
             consecutive_failures = 0
