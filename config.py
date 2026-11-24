@@ -112,7 +112,7 @@ TARGET_PCT = TARGET_PCT_T2         # kept for backward compatibility / backtest.
 STOPLOSS_PCT = 18.0                # cut the whole remaining position at -18%
 MAX_CAPITAL_PER_TRADE_PCT = 5.0    # % of paper/live capital risked per trade
 MAX_TRADES_PER_DAY = 3
-FORCE_EXIT_TIME = "15:15"          # square off all intraday positions (IST)
+FORCE_EXIT_TIME = "15:05"          # square off all intraday positions (IST) - before the 15:10 session end
 
 # How long before FORCE_EXIT_TIME to send an end-of-day check-in for any
 # still-open position: current P&L if closed now, plus a reminder that

@@ -258,6 +258,9 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         return "\n".join(lines)
 
     def _handle_hold(arg: str) -> str:
+        if session_end:
+            return ("Overnight carry isn't supported - the bot runs one bounded session per day and "
+                    f"squares everything off at {config.FORCE_EXIT_TIME}. Use 'close SYMBOL' to log a manual exit.")
         if not account:
             return "Paper trading isn't enabled for this run (start with --paper), so there's nothing to hold."
         symbol = arg.strip().upper()
@@ -326,7 +329,6 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             "/pnl - profit and loss (booked + open)\n"
             "/summary - today's signals, exits and P&L\n"
             "/close SYMBOL [price] - record a position as closed\n"
-            "/hold SYMBOL - skip today's auto square-off\n"
             "<i>I only answer while a session is running (09:15 IST onward).</i>"
         )
 

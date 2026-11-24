@@ -36,7 +36,7 @@ The default session is now the **full day**, 09:15-15:10 IST (~6 h/day) - only s
 - Not tick-live: scan cadence is roughly 1-2 minutes. Signals are for options
   you place yourself by hand; paper fills assume `PAPER_SLIPPAGE_PCT` slippage per side.
 - GitHub cron can start a few minutes late.
-- Telegram commands (`status`, `summary`, `hold`, `close`) work only while a session is running.
+- Telegram commands (`help`, `status`, `trades`, `pnl`, `summary`, `close`) work only while a session is running.
 - Angel One may restrict API access by IP; GitHub runners have changing IPs.
   If login fails you will get a "Bot could not start" message.
 
