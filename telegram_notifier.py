@@ -33,7 +33,7 @@ _LEVEL_EMOJI = {
 def _get_credentials() -> tuple[str, str]:
     token = os.environ.get("TB_TELEGRAM_TOKEN") or config.TELEGRAM_BOT_TOKEN
     chat_id = os.environ.get("TB_TELEGRAM_CHAT_ID") or config.TELEGRAM_CHAT_ID
-    return token, chat_id
+    return token.strip(), chat_id.strip()   # strip hidden newline/space from pasted secrets
 
 
 def _format_expiry_short(expiry: str) -> str:
