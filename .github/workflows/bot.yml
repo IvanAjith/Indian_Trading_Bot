@@ -1,0 +1,61 @@
+name: NSE options signal bot
+
+# Runs the monitor loop once per trading day inside a GitHub-hosted runner.
+# GitHub cron is UTC and can start several minutes late; the bot itself uses
+# IST (TZ below) so its timings stay correct regardless.
+on:
+  schedule:
+    - cron: "45 3 * * 1-5"      # 09:15 IST, Monday-Friday
+  workflow_dispatch:             # "Run workflow" button for manual tests
+    inputs:
+      session_end:
+        description: "End the session at this IST time (HH:MM)"
+        default: "10:30"
+
+# Never let two sessions overlap (they would both answer Telegram commands).
+concurrency:
+  group: trading-bot
+  cancel-in-progress: false
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    # Backstop only - the bot ends itself at SESSION_END. Protects your free minutes
+    # if something hangs. Raise (max 360) if you make the repo public and run a longer day.
+    timeout-minutes: ${{ fromJSON(vars.JOB_TIMEOUT_MIN || '100') }}
+    env:
+      TZ: Asia/Kolkata
+      TB_SCAN_INTERVAL: "30"
+      ANGELONE_API_KEY: ${{ secrets.ANGELONE_API_KEY }}
+      ANGELONE_CLIENT_CODE: ${{ secrets.ANGELONE_CLIENT_CODE }}
+      ANGELONE_PIN: ${{ secrets.ANGELONE_PIN }}
+      ANGELONE_TOTP_SECRET: ${{ secrets.ANGELONE_TOTP_SECRET }}
+      TB_TELEGRAM_TOKEN: ${{ secrets.TB_TELEGRAM_TOKEN }}
+      TB_TELEGRAM_CHAT_ID: ${{ secrets.TB_TELEGRAM_CHAT_ID }}
+      SESSION_END: ${{ github.event.inputs.session_end || vars.SESSION_END || '10:30' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run bot until session end
+        shell: bash   # enables pipefail so a crash fails the job
+        run: python -u main.py --mode monitor --paper --broker angelone --strict --session-end "$SESSION_END" 2>&1 | tee monitor.log
+      - name: Save logs and paper trades
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot-${{ github.run_id }}
+          path: |
+            monitor.log
+            paper_trades.csv
+          if-no-files-found: ignore
+          retention-days: 90
+      - name: Tell me on Telegram if the run failed
+        if: failure()
+        run: |
+          curl -s "https://api.telegram.org/bot${TB_TELEGRAM_TOKEN}/sendMessage" \
+            -d chat_id="${TB_TELEGRAM_CHAT_ID}" \
+            --data-urlencode text="❌ Trading bot run FAILED today. Check the Actions tab: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null

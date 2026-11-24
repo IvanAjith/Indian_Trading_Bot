@@ -111,6 +111,10 @@ EOD_WARNING_MINUTES_BEFORE_CLOSE = 15
 # ---------------------------------------------------------------------------
 PAPER_STARTING_CAPITAL = 100000.0
 PAPER_LOG_FILE = "paper_trades.csv"
+PAPER_SLIPPAGE_PCT = 1.0     # assumed slippage per side (buy above / sell below the
+                             # quoted price). Option spreads on NSE can be wider than
+                             # this for illiquid strikes, so treat paper results with
+                             # this setting as still slightly optimistic.
 
 # ---------------------------------------------------------------------------
 # SCHEDULE NOTES
@@ -132,7 +136,8 @@ LIVE_SIGNAL_RUN_TIME = "09:20"
 # is fine as a "start watching" time, quotes just won't be fully live until 09:15.
 MARKET_OPEN_TIME = "09:00"
 MARKET_CLOSE_TIME = "15:30"
-MONITOR_INTERVAL_SECONDS = 180   # 3 min between scans - tune against your
+import os as _os
+MONITOR_INTERVAL_SECONDS = int(_os.environ.get("TB_SCAN_INTERVAL", 180))   # env var overrides (GitHub Actions uses 30) # 3 min between scans - tune against your
                                  # broker's rate limits if you widen the universe
 STATUS_POLL_INTERVAL_SECONDS = 15   # how often to check Telegram for a "status" ping
 

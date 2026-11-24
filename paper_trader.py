@@ -119,12 +119,15 @@ class PaperTradingAccount:
 
     def open_trade(self, idea: TradeIdea, lots: int = None) -> PaperPosition:
         lots = lots if lots is not None else position_size(self.capital, idea.entry)
+        # Realistic fill: you buy at the ask / chase the move, so assume the
+        # entry fills slightly ABOVE the signal price (config.PAPER_SLIPPAGE_PCT).
+        slip = config.PAPER_SLIPPAGE_PCT / 100
         pos = PaperPosition(
             symbol=idea.symbol,
             option_type=idea.option_type,
             strike=idea.strike,
             expiry=idea.expiry,
-            entry=idea.entry,
+            entry=round(idea.entry * (1 + slip), 2),
             target1=idea.target1,
             target2=idea.target2,
             target3=idea.target3,
@@ -178,7 +181,26 @@ class PaperTradingAccount:
             return
         self._fill(pos, "MANUAL", pos.lots_remaining, price)
 
+    def close_all(self, ltp_lookup, level: str = "TIME"):
+        """Closes every still-open position at the latest known price.
+        ltp_lookup(position) -> price or None. Used when a run/session ends
+        so no paper position is left dangling. Returns the number closed."""
+        closed = 0
+        for pos in self.open_positions:
+            if pos.status == "CLOSED" or pos.lots_remaining <= 0:
+                continue
+            price = ltp_lookup(pos)
+            if price is None:
+                continue
+            self._fill(pos, level, pos.lots_remaining, price)
+            closed += 1
+        return closed
+
     def _fill(self, pos: PaperPosition, level: str, lots: int, price: float):
+        # Selling: you hit the bid, so assume the exit fills slightly BELOW the
+        # quoted price (same slippage % as entry). Targets/stoploss triggers
+        # were already decided on the quoted price before this point.
+        price = round(price * (1 - config.PAPER_SLIPPAGE_PCT / 100), 2)
         pnl = round((price - pos.entry) * lots, 2)
         fill = Fill(
             symbol=pos.symbol, option_type=pos.option_type, strike=pos.strike,

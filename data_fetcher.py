@@ -241,13 +241,17 @@ class MockDataProvider:
         )
 
 
-def get_provider(prefer_live: bool = True, broker: str = "nse"):
+def get_provider(prefer_live: bool = True, broker: str = "nse", strict: bool = False):
     """Returns a live data provider, or falls back to mock.
 
     broker="nse"      -> unofficial NSE website scrape (free, but frequently
                           blocked by anti-bot measures - see README)
     broker="angelone" -> Angel One SmartAPI (requires ANGELONE_* env vars -
                           see README "Angel One SmartAPI setup")
+
+    strict=True -> never fall back to fake data: raise instead, so an
+    unattended run (GitHub Actions) fails loudly rather than quietly running
+    on synthetic prices.
 
     Call this once and reuse the object (keeps sessions/logins warm).
     """
@@ -256,6 +260,8 @@ def get_provider(prefer_live: bool = True, broker: str = "nse"):
             from angelone_provider import AngelOneDataProvider
             return AngelOneDataProvider()
         except Exception as exc:
+            if strict:
+                raise
             print(f"[data_fetcher] Angel One login/setup failed ({exc}); falling back to MockDataProvider.")
             return MockDataProvider()
 
@@ -265,5 +271,7 @@ def get_provider(prefer_live: bool = True, broker: str = "nse"):
             provider._warm_up()
             return provider
         except Exception as exc:
+            if strict:
+                raise
             print(f"[data_fetcher] NSE unreachable ({exc}); falling back to MockDataProvider.")
     return MockDataProvider()
