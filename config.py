@@ -111,6 +111,11 @@ EOD_WARNING_MINUTES_BEFORE_CLOSE = 15
 # ---------------------------------------------------------------------------
 PAPER_STARTING_CAPITAL = 100000.0
 PAPER_LOG_FILE = "paper_trades.csv"
+MOVE_SL_TO_COST_AFTER_T1 = True   # once Target 1 is reached, move the stoploss up to the
+                                  # entry price ("cost-to-cost") so the rest of the trade
+                                  # cannot turn into a big loss. Trade-off: a normal dip
+                                  # back to entry now stops you out at ~breakeven instead
+                                  # of letting the trade breathe toward T2/T3.
 PAPER_SLIPPAGE_PCT = 1.0     # assumed slippage per side (buy above / sell below the
                              # quoted price). Option spreads on NSE can be wider than
                              # this for illiquid strikes, so treat paper results with
