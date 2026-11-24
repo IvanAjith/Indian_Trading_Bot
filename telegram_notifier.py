@@ -164,9 +164,8 @@ def format_eod_check_message(pos, current_ltp: float) -> str:
         f"⏰ {_now_str()}\n\n"
         f"Entry: ₹{pos.entry:.2f}  |  Current: ₹{current_ltp:.2f}\n"
         f"{pnl_emoji} If closed now: ₹{pnl_if_closed:+.2f}\n\n"
-        f"I'll auto square-off at {config.FORCE_EXIT_TIME} unless you reply:\n"
-        f"<b>hold {pos.symbol}</b> - keep it open past today's close (your call, your risk)\n\n"
-        f"Otherwise no action needed - I'll close it automatically."
+        f"I'll square this off automatically at {config.FORCE_EXIT_TIME} (intraday only - "
+        f"no overnight carry). No action needed."
     )
 
 
