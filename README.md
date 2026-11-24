@@ -20,6 +20,22 @@ actually wins. The real accuracy number — historical win rate — only comes
 from `backtest_report.py` (run without `--mock` once you're on live data)
 and from the paper-trading log over time. Don't conflate the two.
 
+## Quick start: run it free on GitHub Actions (recommended)
+
+No server and no laptop needed. A scheduled GitHub job starts the bot each weekday at
+~09:15 IST, scans the market, sends Telegram alerts, and ends itself at the session end time.
+Full step-by-step (secrets, test run, health checks, free-minute budget): **[GITHUB_ACTIONS_DEPLOY.md](GITHUB_ACTIONS_DEPLOY.md)**.
+
+1. Add 6 repo **Secrets**: `ANGELONE_API_KEY`, `ANGELONE_CLIENT_CODE`, `ANGELONE_PIN`,
+   `ANGELONE_TOTP_SECRET`, `TB_TELEGRAM_TOKEN`, `TB_TELEGRAM_CHAT_ID` (where to find them: see the
+   "Telegram alerts" and "Angel One SmartAPI setup" sections below).
+2. Optional repo **Variables**: `SESSION_END` (24-hour IST, default `10:30`; use `15:10` for the full
+   day) and `JOB_TIMEOUT_MIN` (default `100`; `360` for a full day). A private repo has 2,000 free
+   minutes/month (~80 min/day fits); a public repo is unlimited.
+3. Actions tab -> **NSE options signal bot** -> **Run workflow** for a test (type an end time a few
+   minutes ahead, e.g. `22:45` for 10:45 PM - the clock is 24-hour).
+4. Healthy day = a "Bot started" Telegram message at ~09:15-09:30. No message = check the Actions tab.
+
 ## Modes
 
 | Command | What it does |
@@ -28,6 +44,8 @@ and from the paper-trading log over time. Don't conflate the two.
 | `--mode paper` | Same, but also opens paper positions (single snapshot, no ongoing tracking) |
 | `--mode monitor` | **Runs 24/7** (scanning during 09:00–15:30, idling the rest of the time), re-scanning every few minutes, alerting only on genuinely NEW setups (not re-announcing the same one every cycle). Stop it yourself with Ctrl+C (or `./stop_bot.sh`). Add `--paper` to also track paper positions live with real mark-to-market exits. |
 | `--mode backtest` | Historical validation of the momentum signal |
+
+Extra flags: `--strict` (never fall back to fake data - fail loudly; used by GitHub Actions), `--session-end HH:MM` (end the run at that IST time: closes open paper positions and sends a summary), `--paper` (track paper positions), `--mock` (synthetic data).
 
 ```bash
 # The one you probably want for daily use:
@@ -74,7 +92,10 @@ not a bug.
    one Telegram message: entry, T1/T2/T3, stoploss, score, an estimated
    success probability (heuristic, not backtested — see below), and why it
    fired. The same setup won't be re-announced every cycle.
-4. As the (paper) position's premium actually moves, you get a **separate
+4. **Target 1 reached:** a one-time alert tells you to **move your stoploss to cost
+   (cost-to-cost)**; the paper account applies the same rule
+   (`config.MOVE_SL_TO_COST_AFTER_T1`). Then, as the (paper) position's premium actually
+   moves, you get a **separate
    message the instant T1/T2/T3/stoploss is hit** — with the exit price and
    P&L for that fill. Partial exits (e.g. T1 hit, 60% of the position still
    running) say so explicitly.
@@ -90,7 +111,10 @@ not a bug.
    your broker's app), tell the bot **`close SYMBOL`** (or `close SYMBOL 250`
    with an explicit price) so its trade-room count and P&L summary stay
    accurate instead of showing a stale open position forever.
-7. **Telegram commands, anytime:**
+7. **Telegram commands** (answered only while a session is running; with or without a leading `/`):
+   - `help` - the command list.
+   - `trades` - open paper trades with live P&L, stoploss and targets.
+   - `pnl` - booked + open profit and loss, win rate, paper capital.
    - `status` — what the bot's doing right now (scanning / idle / outside
      market hours).
    - `summary` — today's recap: watchlist alerts, signals sent, fills/exits,
@@ -103,18 +127,20 @@ not a bug.
 | File | Purpose |
 |---|---|
 | `config.py` | Universe, thresholds, T1/T2/T3/SL %, Telegram settings — tune here |
-| `data_fetcher.py` | NSE public option-chain + historical data, with a synthetic mock fallback |
-| `angelone_provider.py` | Live data via Angel One SmartAPI — use this instead of NSE scraping, which gets blocked |
+| `data_fetcher.py` | Shared data shapes (incl. lot size), NSE scrape provider, synthetic mock provider |
+| `angelone_provider.py` | Live data via Angel One SmartAPI (batched quotes ~40 per call, real lot sizes, auto-built F&O universe) — use this instead of NSE scraping, which gets blocked |
 | `diagnose_angelone.py` | Run this FIRST to confirm login + response field names before trusting live signals |
 | `indicators.py` | RSI, EMA, MACD, ATR, IV percentile |
 | `triggers.py` | Named technical triggers (breakout, breakdown, bounce, rejection, EMA cross, candle confirmation) |
 | `screener.py` | Scores/ranks the universe into a shortlist, tags which triggers fired |
-| `strategy.py` | Picks strike/expiry, sets entry/T1/T2/T3/SL, position sizing |
-| `paper_trader.py` | Virtual order book with partial exits at T1/T2/T3 + CSV log (no real orders) |
+| `strategy.py` | Picks strike/expiry, sets entry/T1/T2/T3/SL, position sizing (lot-size aware) |
+| `paper_trader.py` | Virtual order book: real lot sizes, slippage, partial exits, stoploss-to-cost after T1, CSV log (no real orders) |
 | `telegram_notifier.py` | Sends a formatted alert to your Telegram when a signal fires |
 | `backtest.py` | Approximate historical validation of the momentum signal (summary + detailed trade records) |
 | `backtest_report.py` | Builds `backtest_report.html` — an interactive chart you open in a browser to SEE past signals plotted on the price history |
-| `main.py` | CLI entry point: `--mode watchlist / paper / backtest` |
+| `main.py` | CLI entry point: `--mode watchlist / paper / monitor / backtest`, Telegram commands, session handling |
+| `.github/workflows/bot.yml` | The scheduled GitHub Actions job that runs the bot daily |
+| `GITHUB_ACTIONS_DEPLOY.md` | How to deploy and monitor the bot on GitHub Actions |
 
 ---
 
@@ -180,6 +206,13 @@ trigger reasons actually performed best. If you already have an older
 detects the column mismatch automatically, archives your old file as
 `paper_trades.csv.pre_DATE.bak` (nothing is lost), and starts a fresh log
 with the new columns.
+
+Paper fills are made more realistic than quoted prices: you buy `PAPER_SLIPPAGE_PCT`
+(default 1%) above and sell that much below, and position size uses the real NSE
+**lot size** (read from Angel One's contract list; the mock feed uses made-up lots). A trade
+is **skipped** if even one lot breaks the 5% max-loss rule or costs more than the paper capital.
+A one-lot trade can't be split into three partial exits, so it exits fully at T2. Every fill row
+now also records `lot_size`.
 
 **7. Generate the visual backtest dashboard (this is the "see it with your
 own eyes" part):**
@@ -318,7 +351,15 @@ while (the very first reading of the day has nothing to compare against
 yet). IV comes cleanly from Angel One's `optionGreek` endpoint, confirmed
 working.
 
-**Also worth knowing:** `config.py`'s `STOCK_UNIVERSE` list needs occasional
+**What gets scanned (Angel One feed):** with `AUTO_UNIVERSE = True` (default) the bot reads the
+live F&O contract list each morning, ranks stocks by open-interest value in their near-the-money
+options, and scans the top `AUTO_UNIVERSE_MAX_STOCKS` (80) plus your curated `STOCK_UNIVERSE`
+(if they still have live options) plus NIFTY/BANKNIFTY/FINNIFTY. Quotes are fetched ~40 per API
+call, so a scan is roughly a minute (estimate - see `monitor.log`). It is **polling, not live
+streaming**: a spike between two scans can be missed. `FETCH_IV` (default off) adds a per-symbol IV
+call; it was a near-constant score input so it is off for speed.
+
+**Also worth knowing (curated list):** `config.py`'s `STOCK_UNIVERSE` list needs occasional
 manual upkeep — NSE's F&O list changes quarterly, and corporate actions
 (mergers, demergers, symbol changes) can make an old symbol stop resolving,
 which is what happened with TATAMOTORS (removed for now, see the comment
@@ -379,7 +420,12 @@ paper trading to real order placement:
 None of this affects the watchlist/paper-trading/Telegram-alert phase
 you're in now — it only applies once real orders start hitting the exchange.
 
-## Running 24/7, even when your Mac is off
+## Running it when your Mac is off
+
+**Easiest and free: GitHub Actions** (see Quick start above and **GITHUB_ACTIONS_DEPLOY.md**).
+It runs a bounded session each weekday (not a 24/7 process), so Telegram commands only answer
+during the session. Alternatives that keep a process alive 24/7:
+
 
 `start_bot.sh` / `stop_bot.sh` (see repo root) run the bot in the background
 so closing the Terminal window doesn't kill it — but it still dies if your
@@ -405,14 +451,30 @@ See **GITHUB_SETUP.md** for putting this project on GitHub so you can
 As of this setup, credentials (Angel One AND Telegram) are environment-variable-only -
 nothing sensitive lives in the code, so it's safe to version control.
 
+## Settings you may want to change (`config.py`)
+
+| Setting | What it does |
+|---|---|
+| `MIN_SIGNAL_SCORE` (70) / `WATCHLIST_MIN_SCORE` (60) | How strict signals / early heads-ups are |
+| `STOPLOSS_PCT` (18), `TARGET_PCT_T1/T2/T3` (15/30/50) | Premium-based stop and targets |
+| `MOVE_SL_TO_COST_AFTER_T1` (True) | Move the stop to entry once Target 1 is reached |
+| `MAX_CAPITAL_PER_TRADE_PCT` (5), `MAX_TRADES_PER_DAY` (3) | Risk per trade / trades per day |
+| `PAPER_SLIPPAGE_PCT` (1.0), `PAPER_STARTING_CAPITAL` | Paper-trading realism |
+| `AUTO_UNIVERSE`, `AUTO_UNIVERSE_MAX_STOCKS` (80), `FETCH_IV` | What is scanned and how fast |
+| `TB_SCAN_INTERVAL` (env var) | Pause between scans in seconds (Actions uses 10) |
+
+## Known limitations (be honest with yourself about these)
+- Signals use **daily** RSI/EMA plus live price - not intraday candles/VWAP yet. Expect similar signals all day.
+- The "estimated win probability" is a heuristic stretch of the score, not a measured win rate.
+- OI change is measured vs the bot's first reading of the day (weak in the first minutes).
+- Polling, not streaming; option spreads/slippage can exceed the 1% assumed in paper fills.
+- No real orders are ever placed. Treat paper results as the only evidence until weeks of data say otherwise.
+
 ## Suggested path from here
 
-1. Run `backtest_report.py` and `--mode watchlist` daily for a couple of
-   weeks with real (non-mock) data once you're on a normal network.
-2. Run `--mode paper` daily, and loop `mark_to_market()` during market hours
-   so partial exits get simulated against real LTP — review
-   `paper_trades.csv` weekly for real win-rate/drawdown, and re-run
-   `backtest_report.py` periodically to watch the accuracy trend visually.
+1. Let the GitHub Actions session run every weekday (it paper-trades with real prices).
+2. Each week, download `paper_trades.csv` from the run's Artifacts and review win rate,
+   average profit per score band, and which reasons win. Re-run `backtest_report.py` now and then.
 3. Only after paper results look genuinely good (and you understand *why*,
    not just that the number is green) — connect a broker order-placement
    call, respecting the static-IP/order-type rules above.
