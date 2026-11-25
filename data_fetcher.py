@@ -55,6 +55,8 @@ class UnderlyingSnapshot:
     avg_20d_volume: float
     history: pd.DataFrame = field(default_factory=pd.DataFrame)  # OHLC, daily
     option_chain: list = field(default_factory=list)  # list[OptionQuote]
+    held_quotes: list = field(default_factory=list)   # quotes for contracts we HOLD that are outside the
+                                                      # near-the-money window (so exits/targets still work)
 
 
 # ---------------------------------------------------------------------------

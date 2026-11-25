@@ -116,6 +116,7 @@ Other automatic messages: 👀 early heads-up · 🔚 exit (T2/T3/stoploss/time)
 | `/trades` | All paper trades today: open ones with live P&L, stoploss and targets, closed ones with result and P&L |
 | `/pnl` | Booked + open profit and loss, win rate, paper capital |
 | `/summary` | Today's heads-ups, signals, exits and P&L so far |
+| `/add SYMBOL STRIKE CE\|PE ENTRY [LOTS]` | Track a trade you took yourself, e.g. `/add NIFTY 25800 CE 249.87`. Uses your entry price, the real lot size, the usual stoploss/targets, T1 alert and exits |
 | `/close SYMBOL [price]` | Record a position as closed (at the latest price, or yours) |
 
 ---
@@ -159,6 +160,12 @@ official list and falls back to `market_holidays.json`: add weekday holidays as 
 (copy from nseindia.com → Resources → Exchange Communication → Holidays) and refresh it each December.
 
 ---
+
+### Held trades are always priced
+A stock/index with an open trade is always scanned, and its exact contract is always fetched - even if the
+price has moved far from the at-the-money strike or the stock dropped out of the top-80 ranking - so targets,
+stoploss and exits keep working. (Earlier versions could silently lose the price of a trade once the market
+moved away from its strike.)
 
 ## Reviewing results
 

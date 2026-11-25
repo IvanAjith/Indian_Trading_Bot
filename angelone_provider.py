@@ -154,6 +154,7 @@ class AngelOneDataProvider:
                                                  # 30 min (a ~100 s stall for ~80 symbols) isn't needed
         self._iv_cache = {}        # {(symbol, expiry): (fetched_at, iv_map)}
         self._universe_cache = None   # (date, [(symbol, is_index), ...])
+        self.watch_contracts = set()   # {(symbol, strike, option_type, expiry)} of trades we hold
         self._oi_state = None      # lazily loaded {date: {token: first_oi}}
         self._oi_dirty = False
 
@@ -382,7 +383,7 @@ class AngelOneDataProvider:
             current_oi = int(row.get("opnInterest", 0) or 0)
             quotes.append(OptionQuote(
                 symbol=symbol,
-                expiry=expiry,
+                expiry=inst.get("expiry") or expiry,
                 strike=strike,
                 option_type=option_type,
                 ltp=float(row.get("ltp", 0)),
@@ -404,6 +405,31 @@ class AngelOneDataProvider:
         # data.fetched[i].opnInterest / .tradeVolume (confirmed field names).
         rows = self._market_data("NFO", [i["token"] for i in near_atm])
         return self._quotes_from_rows(symbol, nearest_expiry, near_atm, rows)
+
+    def _find_contract(self, symbol: str, strike: float, option_type: str, expiry: str = None):
+        """Instrument for one specific option (nearest live expiry if expiry is None), or None."""
+        today = dt.date.today()
+        best = None
+        for t in ("OPTIDX", "OPTSTK"):
+            for i in self._opt_index.get((t, symbol.upper()), []):
+                if not i["symbol"].endswith(option_type) or abs(float(i["strike"]) / 100 - strike) > 1e-6:
+                    continue
+                if expiry is not None:
+                    if i.get("expiry") == expiry:
+                        return i
+                    continue
+                try:
+                    e = self._parse_expiry(i["expiry"])
+                except Exception:
+                    continue
+                if e >= today and (best is None or e < best[0]):
+                    best = (e, i)
+        return best[1] if best else None
+
+    def contract_info(self, symbol: str, strike: float, option_type: str):
+        """(expiry, lot_size) of the nearest-expiry contract, from the instrument master (no API call)."""
+        inst = self._find_contract(symbol, strike, option_type)
+        return (inst["expiry"], int(float(inst.get("lotsize", 1) or 1))) if inst else None
 
     # -- universe --------------------------------------------------------
     def get_universe(self) -> list:
@@ -511,18 +537,30 @@ class AngelOneDataProvider:
             except Exception as exc:
                 print(f"[angelone] skip {sym}: {exc}")
                 continue
-            plan.append((sym, inst, spot, nearest, near))
-            all_tokens.extend(i["token"] for i in near)
+            held = []
+            have = {i["token"] for i in near}
+            for (hs, hk, ht, he) in self.watch_contracts:
+                if hs != sym:
+                    continue
+                hi = self._find_contract(hs, hk, ht, he)
+                if hi and hi["token"] not in have:
+                    held.append(hi)
+                    have.add(hi["token"])
+            plan.append((sym, inst, spot, nearest, near, held))
+            all_tokens.extend(i["token"] for i in near + held)
 
         option_rows = self._market_data("NFO", list(dict.fromkeys(all_tokens)))
 
         snapshots = []
-        for sym, inst, spot, nearest, near in plan:
+        for sym, inst, spot, nearest, near, held in plan:
             try:
                 history = self._with_live_today(
                     self._get_historical_daily("NSE", inst["token"]), spot)
                 chain = self._quotes_from_rows(sym, nearest, near, option_rows) if near else []
-                snapshots.append(self._make_snapshot(sym, spot, history, chain))
+                held_q = self._quotes_from_rows(sym, nearest, held, option_rows) if held else []
+                snap = self._make_snapshot(sym, spot, history, chain)
+                snap.held_quotes = held_q
+                snapshots.append(snap)
             except Exception as exc:
                 print(f"[angelone] skip {sym}: {exc}")
         self.flush_oi_baseline()

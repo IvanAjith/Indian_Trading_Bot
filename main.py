@@ -43,6 +43,10 @@ def _default_universe():
 
 def fetch_all_snapshots(provider):
     universe = provider.get_universe() if hasattr(provider, "get_universe") else _default_universe()
+    # A stock/index with an open trade must ALWAYS be scanned, even if it dropped out of today's ranking.
+    scanned = {s for s, _ in universe}
+    for sym in sorted({c[0] for c in getattr(provider, "watch_contracts", ())} - scanned):
+        universe = universe + [(sym, sym in config.INDEX_UNIVERSE)]
 
     # Fast path: providers that can fetch many symbols per API call (Angel One).
     if hasattr(provider, "get_snapshots"):
@@ -124,6 +128,16 @@ def _within_market_hours(now: dt.datetime) -> tuple[bool, bool]:
 
 def _fresh_day_log() -> dict:
     return {"signals": [], "fills": [], "watchlist": []}
+
+
+def find_leg(snap, pos):
+    """Latest quote for a held position: same expiry preferred, searched in the near-the-money
+    chain and in the extra quotes fetched for held contracts that drifted out of that window."""
+    if not snap:
+        return None
+    quotes = list(snap.option_chain) + list(getattr(snap, "held_quotes", []))
+    same = [q for q in quotes if q.strike == pos.strike and q.option_type == pos.option_type]
+    return next((q for q in same if q.expiry == pos.expiry), None) or (same[0] if same else None)
 
 
 def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, session_end: str = None,
@@ -305,8 +319,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         price = manual_price
         if price is None:
             snap = state["last_snap_by_symbol"].get(symbol)
-            leg = next((q for q in snap.option_chain
-                        if q.strike == pos.strike and q.option_type == pos.option_type), None) if snap else None
+            leg = find_leg(snap, pos)
             if not leg:
                 return (f"Don't have a fresh price for {symbol} to close it automatically. "
                         f"Tell me the price you got: close {symbol} PRICE")
@@ -338,9 +351,45 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
 
     def _live_price(pos):
         snap = state["last_snap_by_symbol"].get(pos.symbol)
-        leg = next((q for q in snap.option_chain
-                    if q.strike == pos.strike and q.option_type == pos.option_type), None) if snap else None
+        leg = find_leg(snap, pos)
         return leg.ltp if leg else None
+
+    def _handle_add(arg: str) -> str:
+        """/add SYMBOL STRIKE CE|PE ENTRY [LOTS] - track a trade you took yourself."""
+        usage = "Usage: /add SYMBOL STRIKE CE|PE ENTRY [LOTS]   e.g. /add NIFTY 25800 CE 249.87"
+        if not account:
+            return "Paper trading isn't enabled for this run, so I can't track trades."
+        parts = arg.split()
+        if len(parts) not in (4, 5):
+            return usage
+        symbol, option_type = parts[0].upper(), parts[2].upper()
+        try:
+            strike, entry = float(parts[1]), float(parts[3])
+            lots = int(parts[4]) if len(parts) == 5 else None
+        except ValueError:
+            return usage
+        if option_type not in ("CE", "PE") or entry <= 0 or (lots is not None and lots <= 0):
+            return usage
+        if any(p.symbol == symbol and p.strike == strike and p.option_type == option_type
+               and p.status != "CLOSED" for p in account.open_positions):
+            return f"{symbol} {strike:.0f} {option_type} is already being tracked (see /trades)."
+        info = provider.contract_info(symbol, strike, option_type) if hasattr(provider, "contract_info") else None
+        if info is None:   # no instrument list (e.g. mock feed): use the latest scan if it saw the contract
+            snap = state["last_snap_by_symbol"].get(symbol)
+            leg = next((q for q in (snap.option_chain if snap else [])
+                        if q.strike == strike and q.option_type == option_type), None)
+            info = (leg.expiry, leg.lot_size) if leg else None
+        if info is None:
+            return (f"I can't find {symbol} {strike:.0f} {option_type} (nearest expiry). "
+                    f"Check the symbol/strike (index/stock name as in the alerts).")
+        expiry, lot_size = info
+        pos = account.open_manual(symbol, option_type, strike, entry, expiry, lot_size, lots)
+        return (
+            f"✅ <b>Tracking {symbol} {expiry} {strike:.0f} {option_type}</b>\n"
+            f"Entry ₹{pos.entry:.2f} | {pos.lots_total} lot(s) x {lot_size}\n"
+            f"SL ₹{pos.stoploss:.2f} | T1 ₹{pos.target1:.2f} T2 ₹{pos.target2:.2f} T3 ₹{pos.target3:.2f}\n"
+            f"I'll alert you on T1 / exits and no new {symbol} alerts will come while it is open."
+        )
 
     def _handle_help(_arg: str = "") -> str:
         return (
@@ -350,6 +399,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             "/trades - open paper trades with live P&L\n"
             "/pnl - profit and loss (booked + open)\n"
             "/summary - today's signals, exits and P&L\n"
+            "/add SYMBOL STRIKE CE|PE ENTRY [LOTS] - track a trade you took yourself\n"
             "/close SYMBOL [price] - record a position as closed\n"
             "<i>I only answer while a session is running (09:15 IST onward).</i>"
         )
@@ -406,7 +456,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
     telegram_commands = {
         "status": _status_text, "summary": _summary_text,
         "hold": _handle_hold, "close": _handle_close,
-        "help": _handle_help, "start": _handle_help,
+        "help": _handle_help, "start": _handle_help, "add": _handle_add,
         "trades": _handle_trades, "pnl": _handle_pnl,
     }
 
@@ -445,8 +495,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         if account:
             def _ltp(pos):
                 snap = state["last_snap_by_symbol"].get(pos.symbol)
-                leg = next((q for q in snap.option_chain
-                            if q.strike == pos.strike and q.option_type == pos.option_type), None) if snap else None
+                leg = find_leg(snap, pos)
                 return leg.ltp if leg else None
             closed = account.close_all(_ltp)
             print(f"[monitor] session end - closed {closed} open paper position(s).")
@@ -511,6 +560,10 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                     break
                 print("[monitor] market is trading today - scanning.")
 
+            if account is not None:   # make sure held contracts keep being priced even if they
+                                      # drift away from the at-the-money strike
+                provider.watch_contracts = {(p.symbol, p.strike, p.option_type, p.expiry)
+                                            for p in account.open_positions if p.status != "CLOSED"}
             snapshots = fetch_all_snapshots(provider)
             if not snapshots:
                 feed_down_cycles += 1
@@ -655,8 +708,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                     snap = snap_by_symbol.get(pos.symbol)
                     if not snap:
                         continue
-                    leg = next((q for q in snap.option_chain
-                                if q.strike == pos.strike and q.option_type == pos.option_type), None)
+                    leg = find_leg(snap, pos)
                     if leg:
                         account.mark_to_market(pos.symbol, pos.option_type, pos.strike, leg.ltp)
                 print(f"[paper] running summary: {account.summary()}")
@@ -673,9 +725,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                         if key in state["eod_warned_today"]:
                             continue
                         snap = snap_by_symbol.get(pos.symbol)
-                        leg = next((q for q in snap.option_chain
-                                    if q.strike == pos.strike and q.option_type == pos.option_type), None) \
-                            if snap else None
+                        leg = find_leg(snap, pos)
                         if not leg:
                             continue
                         state["eod_warned_today"].add(key)
