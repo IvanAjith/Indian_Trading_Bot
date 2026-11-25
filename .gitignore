@@ -38,3 +38,6 @@ backtest_report.html
 # OS/editor cruft.
 .DS_Store
 *.swp
+
+trade_results.csv
+trade_results.csv.*.bak

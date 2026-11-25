@@ -143,6 +143,7 @@ EOD_WARNING_MINUTES_BEFORE_CLOSE = 15
 # ---------------------------------------------------------------------------
 PAPER_STARTING_CAPITAL = 1000000.0   # 3 lots of an index option can cost ~Rs1.4 lakh each, so the paper account is Rs10 lakh
 PAPER_LOG_FILE = "paper_trades.csv"
+PAPER_RESULTS_FILE = "trade_results.csv"   # one row per CLOSED trade: result of the 3-lot scale-out vs "sell everything at T1"
 MOVE_SL_TO_COST_AFTER_T1 = True   # once Target 1 is reached, move the stoploss up to the
                                   # entry price ("cost-to-cost") so the rest of the trade
                                   # cannot turn into a big loss. Trade-off: a normal dip

@@ -178,6 +178,25 @@ def _money(x: float) -> str:
     return f"{'+' if x > 0 else '-'}₹{abs(x):,.2f}"
 
 
+def format_plan_check(positions: list, live_price) -> str:
+    """Compares the two ways of playing the SAME trades: the 3-lot scale-out (what the bot does) vs selling
+    every lot as soon as Target 1 is reached. Trades that never reached T1 are identical in both."""
+    if not positions:
+        return ""
+    scale = t1_only = 0.0
+    for p in positions:
+        price = live_price(p) if p.status != "CLOSED" else None
+        scale += p.actual_pnl(price)
+        t1_only += p.t1_only_pnl(price)
+    reached = sum(1 for p in positions if p.t1_price > 0)
+    diff = scale - t1_only
+    better = "scale-out ahead" if diff > 0.5 else ("T1-only ahead" if diff < -0.5 else "same")
+    return (f"\U0001F4CA <b>Plan check</b> ({len(positions)} trades, {reached} reached T1; before charges)\n"
+            f"3-lot scale-out: {_money(round(scale, 2))}\n"
+            f"Sell everything at T1: {_money(round(t1_only, 2))}\n"
+            f"Difference: {_money(round(diff, 2))} ({better})")
+
+
 def format_trades_summary(positions: list, live_price) -> str:
     """Body of the /trades reply. Every paper trade today with: profit/loss BOOKED so far (money
     already locked in by partial sales / exits), the OPEN profit/loss on what is still held, their
@@ -251,6 +270,7 @@ def format_trades_summary(positions: list, live_price) -> str:
         f"\U0001F4B0 Booked so far: {_money(round(booked_total, 2))} | Open: {_money(round(open_total, 2))}\n"
         f"<b>NET: {_money(net_total)}</b>"
         + ("\n<i>(some open trades have no fresh price - counted as 0 open P&L)</i>" if unpriced else "")
+        + "\n\n" + format_plan_check(positions, live_price)
     )
     header = (f"\U0001F4C2 <b>Paper trades today: {len(positions)}</b>  "
               f"({len(open_positions)} open, {len(closed)} closed)")

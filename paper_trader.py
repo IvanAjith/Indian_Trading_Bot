@@ -71,8 +71,24 @@ class PaperPosition:
     reasons: list = field(default_factory=list)
     lot_size: int = 1
     oversize: bool = False       # tracked as 1 lot although it breaks the max-loss rule
+    t1_price: float = 0.0        # price seen when Target 1 was first reached (for the "sell all at T1" comparison)
     peak_price: float = 0.0      # highest premium seen while the trade was open (to show what was given back)
     t1_alerted: bool = False    # True once the "Target 1 reached" alert has been sent
+
+    def actual_pnl(self, price: float = None) -> float:
+        """P&L of the plan actually followed: money booked so far + the open part at `price` (if known)."""
+        total = sum(f.pnl for f in self.fills)
+        if self.lots_remaining > 0 and price is not None:
+            total += (price - self.entry) * self.lots_remaining * self.lot_size
+        return round(total, 2)
+
+    def t1_only_pnl(self, price: float = None) -> float:
+        """What the same trade would have made if ALL lots had been sold the moment Target 1 was reached.
+        If Target 1 was never reached the plans are identical, so this equals actual_pnl()."""
+        if self.t1_price > 0:
+            sell = self.t1_price * (1 - config.PAPER_SLIPPAGE_PCT / 100)
+            return round((sell - self.entry) * self.lots_total * self.lot_size, 2)
+        return self.actual_pnl(price)
 
     def __post_init__(self):
         if not self.lots_by_level and self.lots_total == 1:
@@ -99,6 +115,38 @@ class PaperTradingAccount:
         self.on_fill = on_fill
         self.on_t1 = on_t1   # on_t1(position, price): called once when Target 1 is first reached
         self._ensure_log_header()
+        self._ensure_results_header()
+
+    _RESULT_FIELDS = ["date", "symbol", "option_type", "strike", "expiry", "lot_size", "lots", "entry",
+                      "t1_reached", "t1_price", "exit_levels", "scale_out_pnl", "t1_only_pnl",
+                      "scale_out_minus_t1_only", "score", "reasons", "opened_at", "closed_at"]
+
+    def _ensure_results_header(self):
+        path = config.PAPER_RESULTS_FILE
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            with open(path) as f:
+                if f.readline().strip().split(",") == self._RESULT_FIELDS:
+                    return
+            os.rename(path, f"{path}.old_{dt.date.today().isoformat()}.bak")
+        with open(path, "w", newline="") as f:
+            csv.DictWriter(f, fieldnames=self._RESULT_FIELDS).writeheader()
+
+    def _append_result(self, pos):
+        scale, t1only = pos.actual_pnl(), pos.t1_only_pnl()
+        row = {
+            "date": dt.date.today().isoformat(), "symbol": pos.symbol, "option_type": pos.option_type,
+            "strike": pos.strike, "expiry": pos.expiry, "lot_size": pos.lot_size, "lots": pos.lots_total,
+            "entry": pos.entry, "t1_reached": "yes" if pos.t1_price > 0 else "no", "t1_price": pos.t1_price,
+            "exit_levels": "/".join(dict.fromkeys(f.level for f in pos.fills)),
+            "scale_out_pnl": scale, "t1_only_pnl": t1only, "scale_out_minus_t1_only": round(scale - t1only, 2),
+            "score": pos.score, "reasons": "; ".join(pos.reasons), "opened_at": pos.opened_at,
+            "closed_at": dt.datetime.now().isoformat(timespec="seconds"),
+        }
+        try:
+            with open(config.PAPER_RESULTS_FILE, "a", newline="") as f:
+                csv.DictWriter(f, fieldnames=self._RESULT_FIELDS).writerow(row)
+        except Exception as exc:
+            print(f"[paper_trader] could not write trade result (not fatal): {exc}")
 
     def _ensure_log_header(self):
         expected_fields = list(asdict(Fill("", "", 0, "", "", 0, 0, 0, "")).keys())
@@ -210,6 +258,7 @@ class PaperTradingAccount:
             # partial exit at T1), and optionally lock the stop at cost-to-cost.
             if not pos.t1_alerted and current_ltp >= pos.target1:
                 pos.t1_alerted = True
+                pos.t1_price = current_ltp
                 if config.MOVE_SL_TO_COST_AFTER_T1:
                     pos.stoploss = max(pos.stoploss, pos.entry)
                 if self.on_t1:
@@ -275,6 +324,8 @@ class PaperTradingAccount:
         self.capital += pnl
         self._append_log(fill)
         pos.status = "CLOSED" if pos.lots_remaining <= 0 else "PARTIAL"
+        if pos.status == "CLOSED":
+            self._append_result(pos)
 
         if self.on_fill:
             try:

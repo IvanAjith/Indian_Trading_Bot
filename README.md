@@ -191,10 +191,17 @@ moved away from its strike.)
 
 ## Reviewing results
 
-Each run uploads `monitor.log` and `paper_trades.csv` (Artifacts section of the run page, kept 90 days).
+Each run uploads `monitor.log`, `paper_trades.csv` and `trade_results.csv` (Artifacts section of the run page, kept 90 days).
 Every `paper_trades.csv` row is one fill: symbol, strike, level (T1/T2/T3/SL/TIME/MANUAL), lots, price,
 P&L, entry price, score, lot size and the trigger reasons - so you can analyse which score bands and
 reasons actually win. Review weekly; judge the rules on weeks of data, not one day.
+
+**Which plan is better? (`trade_results.csv`)** Every closed trade is also written to `trade_results.csv` with
+two results for the *same* trade: `scale_out_pnl` (the 3-lot plan the bot follows) and `t1_only_pnl` (what it
+would have earned selling every lot the moment Target 1 was reached), plus the difference. `/trades` and the
+daily summary show the running comparison ("Plan check"). Trades that never reached T1 are identical in both
+plans. Use it to decide, after enough days, whether holding for T2/T3 beats simply taking T1 (figures are
+before brokerage and taxes).
 
 Optional visual backtest (approximate - uses daily candles and a fixed-delta premium model):
 `python3 backtest_report.py --broker angelone` → open `backtest_report.html`.
