@@ -24,7 +24,7 @@ from strategy import build_trade_idea
 from paper_trader import PaperTradingAccount
 from telegram_notifier import (
     notify_new_signals, send_telegram_message, format_exit_message, poll_status_requests,
-    format_watchlist_message, format_eod_check_message, format_t1_message, format_trades_summary,
+    format_watchlist_message, format_eod_check_message, format_t1_message, format_trades_summary, fmt_strike,
 )
 import backtest as bt
 
@@ -88,7 +88,7 @@ def run_watchlist(provider):
         if idea:
             ideas.append(idea)
             print(
-                f"{idea.symbol:12s} {idea.option_type} {idea.strike:>8.0f} "
+                f"{idea.symbol:12s} {idea.option_type} {fmt_strike(idea.strike):>8s} "
                 f"exp {idea.expiry} | entry {idea.entry:>7.2f} "
                 f"T1 {idea.target1:>7.2f} T2 {idea.target2:>7.2f} T3 {idea.target3:>7.2f} "
                 f"sl {idea.stoploss:>7.2f} | score {idea.score}\n"
@@ -197,7 +197,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         "last_scan_at": None, "alerted_today": set(), "last_signal_count": 0,
         "day_log": _fresh_day_log(), "watchlisted_today": set(),
         "eod_warned_today": set(), "last_snap_by_symbol": {},
-        "scans": 0, "symbols_scanned": 0, "suppressed_logged": set(), "closed_checked": not skip_if_closed,
+        "scans": 0, "symbols_scanned": 0, "scan_secs": [], "suppressed_logged": set(), "closed_checked": not skip_if_closed,
         "watchlist_score_history": {},  # {(symbol, bias): last-seen score} -
                                         # used to only alert when a setup is
                                         # actually strengthening, not just
@@ -254,7 +254,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         lines.append(f"\n\U0001F195 Signals sent: {len(signals)}")
         for s in signals:
             lines.append(
-                f"  • {s['time']} {s['symbol']} {s['option_type']} {s['strike']:.0f} "
+                f"  • {s['time']} {s['symbol']} {s['option_type']} {fmt_strike(s['strike'])} "
                 f"@ ₹{s['entry']:.2f} (score {s['score']:.0f}, ~{s['win_probability']:.0f}% est.)"
             )
 
@@ -263,7 +263,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             lines.append(f"\n\U0001F51A Exits/fills: {len(fills)}")
             for f in fills:
                 lines.append(
-                    f"  • {f['time']} {f['symbol']} {f['option_type']} {f['strike']:.0f} "
+                    f"  • {f['time']} {f['symbol']} {f['option_type']} {fmt_strike(f['strike'])} "
                     f"{f['level']} @ ₹{f['price']:.2f} (P&L ₹{f['pnl']:+.2f})"
                 )
             pnl_emoji = "\U0001F4B0" if total_pnl >= 0 else "\U0001F4B8"
@@ -371,22 +371,22 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             return usage
         if option_type not in ("CE", "PE") or entry <= 0 or (lots is not None and lots <= 0):
             return usage
-        if any(p.symbol == symbol and p.strike == strike and p.option_type == option_type
-               and p.status != "CLOSED" for p in account.open_positions):
-            return f"{symbol} {strike:.0f} {option_type} is already being tracked (see /trades)."
         info = provider.contract_info(symbol, strike, option_type) if hasattr(provider, "contract_info") else None
         if info is None:   # no instrument list (e.g. mock feed): use the latest scan if it saw the contract
             snap = state["last_snap_by_symbol"].get(symbol)
             leg = next((q for q in (snap.option_chain if snap else [])
                         if q.strike == strike and q.option_type == option_type), None)
-            info = (leg.expiry, leg.lot_size) if leg else None
+            info = (leg.expiry, leg.lot_size, leg.strike) if leg else None
         if info is None:
-            return (f"I can't find {symbol} {strike:.0f} {option_type} (nearest expiry). "
+            return (f"I can't find {symbol} {fmt_strike(strike)} {option_type} (nearest expiry). "
                     f"Check the symbol/strike (index/stock name as in the alerts).")
-        expiry, lot_size = info
+        expiry, lot_size, strike = info   # strike = the real contract strike (e.g. 307.5 for '308')
+        if any(p.symbol == symbol and p.strike == strike and p.option_type == option_type
+               and p.status != "CLOSED" for p in account.open_positions):
+            return f"{symbol} {fmt_strike(strike)} {option_type} is already being tracked (see /trades)."
         pos = account.open_manual(symbol, option_type, strike, entry, expiry, lot_size, lots)
         return (
-            f"✅ <b>Tracking {symbol} {expiry} {strike:.0f} {option_type}</b>\n"
+            f"✅ <b>Tracking {symbol} {expiry} {fmt_strike(strike)} {option_type}</b>\n"
             f"Entry ₹{pos.entry:.2f} | {pos.lots_total} lot(s) x {lot_size}\n"
             f"SL ₹{pos.stoploss:.2f} | T1 ₹{pos.target1:.2f} T2 ₹{pos.target2:.2f} T3 ₹{pos.target3:.2f}\n"
             f"I'll alert you on T1 / exits and no new {symbol} alerts will come while it is open."
@@ -517,6 +517,18 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             raise box["error"]
         return box["snaps"]
 
+    def _timing_line() -> str:
+        secs = state["scan_secs"]
+        if not secs:
+            return ""
+        steady = secs[1:] or secs
+        line = (f"\nScan time: first {secs[0] / 60:.1f} min, then avg {sum(steady) / len(steady):.0f}s "
+                f"(slowest {max(steady):.0f}s).")
+        stats = getattr(provider, "stats", None)
+        if stats:
+            line += f" API calls {stats['calls']}, rate-limit retries {stats['rate_limit_retries']}."
+        return line
+
     def _end_session():
         if account:
             def _ltp(pos):
@@ -529,7 +541,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             send_telegram_message(
                 "\U0001F51A <b>Session ended.</b>\n" + _summary_text() +
                 f"\n\n\U0001F916 Bot health: {state['scans']} scans completed, "
-                f"{state['symbols_scanned']} symbols per scan.")
+                f"{state['symbols_scanned']} symbols per scan." + _timing_line())
 
     try:
         while True:
@@ -586,11 +598,17 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                     break
                 print("[monitor] market is trading today - scanning.")
 
-            if account is not None:   # make sure held contracts keep being priced even if they
+            if account is not None and provider is not None:   # make sure held contracts keep being priced even if they
                                       # drift away from the at-the-money strike
                 provider.watch_contracts = {(p.symbol, p.strike, p.option_type, p.expiry)
                                             for p in account.open_positions if p.status != "CLOSED"}
+            scan_started = time.time()
             snapshots = _fetch_while_polling()
+            scan_secs = time.time() - scan_started
+            state["scan_secs"].append(scan_secs)
+            print(f"[monitor] scan took {scan_secs:.0f}s ({len(snapshots)} symbols)")
+            if len(state["scan_secs"]) == 1 and snapshots and config.TELEGRAM_ENABLED:
+                send_telegram_message(f"✅ First scan done in {scan_secs / 60:.1f} min ({len(snapshots)} symbols). Scanning continuously now.")
             if not snapshots:
                 feed_down_cycles += 1
                 print(f"[monitor] {now:%H:%M} - NO data this cycle ({feed_down_cycles} in a row).")
@@ -700,7 +718,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 print(f"\n[monitor] {now:%H:%M} - {len(new_ideas)} NEW signal(s):")
                 for idea in new_ideas:
                     print(
-                        f"  {idea.symbol:12s} {idea.option_type} {idea.strike:>8.0f} "
+                        f"  {idea.symbol:12s} {idea.option_type} {fmt_strike(idea.strike):>8s} "
                         f"entry {idea.entry:>7.2f} T1 {idea.target1:>7.2f} T2 {idea.target2:>7.2f} "
                         f"T3 {idea.target3:>7.2f} sl {idea.stoploss:>7.2f} | score {idea.score}"
                     )

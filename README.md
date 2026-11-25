@@ -116,7 +116,7 @@ Other automatic messages: 👀 early heads-up · 🔚 exit (T2/T3/stoploss/time)
 | `/trades` | All paper trades today: open ones with live P&L, stoploss and targets, closed ones with result and P&L |
 | `/pnl` | Booked + open profit and loss, win rate, paper capital |
 | `/summary` | Today's heads-ups, signals, exits and P&L so far |
-| `/add SYMBOL STRIKE CE\|PE ENTRY [LOTS]` | Track a trade you took yourself, e.g. `/add NIFTY 25800 CE 249.87`. Uses your entry price, the real lot size, the usual stoploss/targets, T1 alert and exits |
+| `/add SYMBOL STRIKE CE\|PE ENTRY [LOTS]` | Track a trade you took yourself, e.g. `/add NIFTY 25800 CE 249.87` (a rounded strike like 308 matches the real 307.5). Uses your entry price, the real lot size, the usual stoploss/targets, T1 alert and exits |
 | `/close SYMBOL [price]` | Record a position as closed (at the latest price, or yours) |
 
 ---

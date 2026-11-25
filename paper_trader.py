@@ -130,10 +130,10 @@ class PaperTradingAccount:
         oversize = False
         if lots <= 0 and config.PAPER_TRACK_ALL_SIGNALS:
             lots, oversize = 1, True
-            print(f"[paper] {idea.symbol} {idea.strike:.0f} {idea.option_type}: one lot is above the "
+            print(f"[paper] {idea.symbol} {idea.strike:g} {idea.option_type}: one lot is above the "
                   f"{config.MAX_CAPITAL_PER_TRADE_PCT}% risk rule - tracking it as 1 lot anyway (oversize).")
         if lots <= 0:
-            print(f"[paper] skipped {idea.symbol} {idea.strike:.0f} {idea.option_type}: one lot "
+            print(f"[paper] skipped {idea.symbol} {idea.strike:g} {idea.option_type}: one lot "
                   f"({idea.lot_size} units x Rs{idea.entry:.2f}) is too big for the "
                   f"{config.MAX_CAPITAL_PER_TRADE_PCT}% risk limit on Rs{self.capital:.0f}.")
             return None

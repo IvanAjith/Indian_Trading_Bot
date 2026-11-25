@@ -45,7 +45,7 @@ At the start of each day the bot reads Angel One's live F&O contract list, ranks
 stocks by open-interest value (money parked in near-the-money options) and scans the top 80,
 plus your curated list in `config.py` (if they still have options), plus NIFTY/BANKNIFTY/FINNIFTY.
 Prices come ~40 per API call. Settings in `config.py`: `AUTO_UNIVERSE`, `AUTO_UNIVERSE_MAX_STOCKS`, `FETCH_IV`.
-The first scan of the day is slower (it downloads daily candles for every symbol once).
+The first scan of the day is slower (it downloads daily candles for every symbol once, 3 at a time). The bot says how long it took ("✅ First scan done in X min") and the 15:10 summary reports first/average scan time, API calls and rate-limit retries. Commands you send meanwhile are answered right away.
 
 ## Daily summary and holidays
 - **Summary:** sent when the session ends (15:10 IST with the default full day, or `SESSION_END`),
