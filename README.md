@@ -118,47 +118,38 @@ Bullish, score 64 - not an entry yet.
 It names the at-the-money contract the bot would trade right now (expiry, strike, CE/PE) with its current
 price. If the price moves before the entry alert, the strike in the entry alert can differ by a step.
 
-**What to do at each step** - short, action-first messages (one lot is sold at each target):
+**What to do at each step** - short, action-first messages. Every amount is **per lot** (one lot is sold at each
+target), so it reads the same whether you hold 1, 2 or 3 lots:
 ```
 🎯 Target 1 hit - FINNIFTY 29 DEC 28700 CE at ₹891.00
-Approx profit - ₹6,270.60
+Approx profit per lot - ₹6,270.60
 Move remaining quantity to C2C price - ₹786.49
 
 🎯 Target 2 hit - FINNIFTY 29 DEC 28700 CE at ₹1004.85
-Approx profit - ₹13,101.60
+Approx profit per lot - ₹13,101.60
 Move remaining quantity to Target 1 price - ₹895.50
-Total booked so far - +₹19,372.20
 
 🏁 All targets hit - FINNIFTY 29 DEC 28700 CE at ₹1158.30
-Approx profit - ₹22,308.60
-Total for the trade - +₹41,680.80
+Approx profit per lot - ₹22,308.60
 Close the trade
 
 🛑 Stoploss Hit - FINNIFTY 29 DEC 28700 CE
 Approx loss per lot - ₹9,767.40
-Approx loss for 3 lots - ₹29,302.20
 Close the trade
+```
+**When the price comes back after a target** the message says which price was reached, which targets were already
+hit, the profit booked per lot, and tells you to exit. The profit booked at the target stays the real profit of the
+trade (it is recorded as it is):
+```
+🔒 Cost-to-cost price reached - FINNIFTY 29 DEC 28700 CE        (after T1, back at your entry price)
+Target 1 was already reached
+Profit booked per lot - T1 ₹6,270.60
+Approx loss per lot - ₹857.40
+Exit the trade
 ```
 Stock trades have only two targets, so for them the **Target 2** message is the last one: it says
 "🏁 All targets hit … Close the trade". (Index trades go on to Target 3.)
 
-**When the price comes back after a target** the message says which price was reached, which targets were
-already hit, what was booked, and tells you to exit:
-```
-🔒 Cost-to-cost price reached - FINNIFTY 29 DEC 28700 CE        (after T1, back at your entry price)
-Target 1 was already reached
-Profit booked at targets - +₹6,270.60
-Approx loss on the remaining 2 lots - ₹1,714.80
-Net for the trade - +₹4,555.80
-Exit the trade
-
-🛑 Stoploss hit at Target 1 price - FINNIFTY 29 DEC 28700 CE   (after T2, back at the T1 price)
-Target 1 and Target 2 were already reached
-Profit booked at targets - +₹19,372.20
-Approx profit on the remaining 1 lot - ₹5,082.60
-Net for the trade - +₹24,454.80
-Exit the trade
-```
 A stop is checked at each scan, so a fast fall can exit a little below the stop (plus the assumed 1% sell
 slippage) - that is why the remaining lots can show a small loss even though the stop was "at cost". A one-lot
 trade sells nothing at T1, so its T1 message says "Approx profit on paper" and still tells you to move the stop to cost.

@@ -79,27 +79,26 @@ def format_signal_message(idea) -> str:
 
 
 def format_exit_message(position, level: str, lots: int, price: float) -> str:
-    """Short, action-first message for every fill of a paper trade (one lot at T1, T2, T3, the stoploss,
-    the square-off or a manual close). `position` is a paper_trader.PaperPosition; this is called AFTER the
-    fill was recorded, so position.fills includes it and position.lots_remaining is what is still held."""
+    """Short, action-first message for every fill of a paper trade. ALL amounts are PER LOT (one lot is sold at
+    each target), so they are the same whether you hold 1, 2 or 3 lots. `position` is a paper_trader.PaperPosition;
+    this is called AFTER the fill was recorded, so position.fills includes it."""
     expiry_short = _format_expiry_short(position.expiry)
     contract = (f"{position.symbol} {expiry_short} {fmt_strike(position.strike)} {position.option_type}")
     per_lot = round((price - position.entry) * position.lot_size, 2)       # this exit, per lot
-    pnl = round(per_lot * lots, 2)                                          # this exit, all lots sold now
     remaining = position.lots_remaining
-    total = round(sum(f.pnl for f in position.fills), 2)                    # whole trade so far
-    earlier = round(total - pnl, 2)                                         # booked before this exit
-    plural = "lot" if lots == 1 else "lots"
 
     def money(x):
         return f"₹{abs(x):,.2f}"
 
+    def result(x, noun="profit"):
+        return f"Approx {noun} per lot - {money(x)}" if x >= 0 else f"Approx loss per lot - {money(x)}"
+
     if level == "SL":
-        done = {f.level for f in position.fills[:-1]}                 # targets already sold before this exit
+        earlier_fills = position.fills[:-1]
+        done = {f.level for f in earlier_fills}                       # targets already sold before this exit
         t1_done = position.t1_alerted or "T1" in done
         at_t1_price = position.stoploss >= position.target1           # stop trailed up to T1 (after T2)
         at_cost = (not at_t1_price) and position.stoploss >= position.entry and t1_done
-        result_word = "profit" if pnl >= 0 else "loss"
 
         if at_t1_price:
             lines = [f"\U0001F6D1 <b>Stoploss hit at Target 1 price</b> - {contract}",
@@ -108,56 +107,37 @@ def format_exit_message(position, level: str, lots: int, price: float) -> str:
             lines = [f"\U0001F512 <b>Cost-to-cost price reached</b> - {contract}",
                      "Target 1 was already reached"]
         else:
-            lines = [f"\U0001F6D1 <b>Stoploss Hit</b> - {contract}"]
-            word = "profit" if per_lot >= 0 else "loss"
-            lines.append(f"Approx {word} per lot - {money(abs(per_lot))}")
-            lines.append(f"Approx {word} for {lots} {plural} - {money(abs(pnl))}")
-            lines.append("<b>Close the trade</b>")
-            return "\n".join(lines)
+            return "\n".join([f"\U0001F6D1 <b>Stoploss Hit</b> - {contract}", result(per_lot, "loss"),
+                              "<b>Close the trade</b>"])
 
-        # after a target: show what was booked, what the rest made, and the net for the trade
-        if earlier != 0:
-            lines.append(f"Profit booked at targets - {_money(earlier)}")
+        # after a target: the profit booked (per lot, per target) and what the rest made (per lot)
+        booked = [f"{f.level} {money(f.pnl / f.lots)}" for f in earlier_fills if f.lots and f.level in ("T1", "T2", "T3")]
+        if booked:
+            lines.append("Profit booked per lot - " + ", ".join(booked))
         else:
             lines.append("Nothing was sold at T1 (single lot) - that profit was only on paper")
-        lines.append(f"Approx {result_word} on the remaining {lots} {plural} - "
-                     f"{money(abs(pnl))}" if pnl != 0 else f"Remaining {lots} {plural} - exited at about cost")
-        lines.append(f"<b>Net for the trade - {_money(total)}</b>")
+        lines.append(result(per_lot) if abs(per_lot) >= 0.005 else "Remaining lots exited at about cost")
         lines.append("<b>Exit the trade</b>")
         return "\n".join(lines)
 
     if level == "TIME":
-        lines = [f"⏰ <b>Square-off time</b> - {contract}",
-                 f"Approx {'profit' if pnl >= 0 else 'loss'} for {lots} {plural} - {money(abs(pnl))}"]
-        if earlier != 0:
-            lines.append(f"Net for the trade: {_money(total)}")
-        lines.append("<b>Close the trade</b>")
-        return "\n".join(lines)
+        return "\n".join([f"⏰ <b>Square-off time</b> - {contract}", result(per_lot), "<b>Close the trade</b>"])
 
     if level == "MANUAL":
-        return (f"\U0001F44B <b>Closed manually</b> - {contract}\n"
-                f"Net for the trade: {_money(total)}")
+        return f"\U0001F44B <b>Closed manually</b> - {contract}\n{result(per_lot)}"
 
     # ---- a target was hit ----
     last_level = f"T{getattr(position, 'n_targets', 3)}"
     if level == last_level or remaining <= 0:
         title = ("\U0001F3C1 <b>All targets hit</b>" if level == last_level
                  else f"\U0001F3AF <b>Target {level[1]} hit</b>")
-        lines = [f"{title} - {contract} at ₹{price:.2f}",
-                 f"Approx profit - {money(pnl)}" if pnl >= 0 else f"Approx loss - {money(abs(pnl))}"]
-        if earlier != 0:
-            lines.append(f"Total for the trade - {_money(total)}")
-        lines.append("<b>Close the trade</b>")
-        return "\n".join(lines)
+        return "\n".join([f"{title} - {contract} at ₹{price:.2f}", result(per_lot), "<b>Close the trade</b>"])
 
-    lines = [f"\U0001F3AF <b>Target {level[1]} hit</b> - {contract} at ₹{price:.2f}",
-             f"Approx profit - {money(pnl)}" if pnl >= 0 else f"Approx loss - {money(abs(pnl))}"]
+    lines = [f"\U0001F3AF <b>Target {level[1]} hit</b> - {contract} at ₹{price:.2f}", result(per_lot)]
     if level == "T1" and config.MOVE_SL_TO_COST_AFTER_T1:
         lines.append(f"<b>Move remaining quantity to C2C price - ₹{position.entry:.2f}</b>")
     elif level == "T2" and getattr(position, "n_targets", 3) >= 3 and config.TRAIL_SL_TO_T1_AFTER_T2:
         lines.append(f"<b>Move remaining quantity to Target 1 price - ₹{position.target1:.2f}</b>")
-    if earlier != 0:
-        lines.append(f"Total booked so far - {_money(total)}")
     return "\n".join(lines)
 
 
@@ -166,9 +146,9 @@ def format_t1_message(position, price: float) -> str:
     at T1, the exit message (format_exit_message) already says everything."""
     expiry_short = _format_expiry_short(position.expiry)
     contract = f"{position.symbol} {expiry_short} {fmt_strike(position.strike)} {position.option_type}"
-    paper = round((price - position.entry) * position.lot_size * position.lots_remaining, 2)
+    paper = round((price - position.entry) * position.lot_size, 2)
     lines = [f"\U0001F3AF <b>Target 1 hit</b> - {contract} at ₹{price:.2f}",
-             f"Approx profit on paper - {_money(paper)}"]
+             f"Approx profit per lot (on paper) - {_money(paper)}"]
     if config.MOVE_SL_TO_COST_AFTER_T1:
         lines.append(f"<b>Move remaining quantity to C2C price - ₹{position.entry:.2f}</b>")
     return "\n".join(lines)
