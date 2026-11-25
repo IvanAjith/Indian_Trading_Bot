@@ -37,10 +37,12 @@ one at a time ("build item 4.2"). Keep one change per release, so results stay c
 
 | Date (Fri) | What |
 |---|---|
-| 27 Nov | First weekly review (almost empty - only checks that the plumbing works). |
-| 4 Dec | First useful review (about 1 week of trades). |
-| 11 Dec | **2-week checkpoint** - go through section 3. |
-| 18 Dec | **3-week checkpoint** - decide the first upgrades from section 4. |
+| Fri 27 Nov | First weekly review (2 trading days: 26 and 27 Nov - only checks that the plumbing works). |
+| Fri 4 Dec | First useful review (7 trading days). |
+| **Fri 11 Dec** | **2-week checkpoint** (12 trading days) - go through section 3. |
+| **Fri 18 Dec** | **3-week checkpoint** (17 trading days) - decide the first upgrades from section 4. |
+
+Day one of the clean record is **Thursday 26 Nov 2026** (25 Nov is not used: the sessions that day had different rules and a mid-day restart). Summaries and reviews show profit/loss in rupees **and as a percentage** (return on the money invested, and as % of the ₹1 lakh account).
 
 Where the data lives: `journal-data` branch → `journal/YYYY-MM-DD.md` (read), `journal/trades.jsonl` (analysis),
 `journal/weekly/*.md` and `journal/learnings.json` (reviews); run artifacts → `trade_results.csv`, `paper_trades.csv`.

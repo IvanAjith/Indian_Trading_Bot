@@ -95,12 +95,16 @@ DIMENSIONS = [
 def stats(rows: list) -> dict:
     n = len(rows)
     if not n:
-        return {"n": 0, "wins": 0, "win_rate": 0.0, "avg_a": 0.0, "tot_a": 0.0, "avg_b": 0.0, "tot_b": 0.0, "stop_b4_t1": 0.0}
+        return {"n": 0, "wins": 0, "win_rate": 0.0, "avg_a": 0.0, "tot_a": 0.0, "avg_b": 0.0, "tot_b": 0.0,
+                "ret_a": 0.0, "ret_b": 0.0, "stop_b4_t1": 0.0}
     wins = sum(1 for r in rows if r.get("a_pnl", 0) > 0)
     tot_a = sum(r.get("a_pnl", 0) for r in rows)
     tot_b = sum(r.get("b_pnl", 0) for r in rows)
+    cap_a = sum(r.get("a_capital", 0) for r in rows)
+    cap_b = sum(r.get("b_capital", 0) for r in rows)
     return {"n": n, "wins": wins, "win_rate": 100 * wins / n, "avg_a": tot_a / n, "tot_a": tot_a,
-            "avg_b": tot_b / n, "tot_b": tot_b,
+            "avg_b": tot_b / n, "tot_b": tot_b, "ret_a": (100 * tot_a / cap_a) if cap_a else 0.0,
+            "ret_b": (100 * tot_b / cap_b) if cap_b else 0.0,
             "stop_b4_t1": 100 * sum(1 for r in rows if r.get("outcome") == "STOP_BEFORE_T1") / n}
 
 
@@ -175,10 +179,11 @@ def render(week_rows, all_rows, period: str) -> str:
     o, oa = stats(wk_alert), stats(al_alert)
     L = [f"# Weekly review - {period}", ""]
     L.append(f"**Your alerted trades, this period:** {o['n']} trades, {o['wins']} wins ({o['win_rate']:.0f}%). "
-             f"Plan A (full scale-out) {money(o['tot_a'])}; Plan B (1 lot at T1) {money(o['tot_b'])}. "
+             f"Plan A (full scale-out) {money(o['tot_a'])} ({o['ret_a']:+.1f}% on the money invested); "
+             f"Plan B (1 lot at T1) {money(o['tot_b'])} ({o['ret_b']:+.1f}%). "
              f"Before brokerage and taxes.")
     L.append(f"**Alerted trades, all history:** {oa['n']} trades, {oa['win_rate']:.0f}% win rate, "
-             f"Plan A {money(oa['tot_a'])}, Plan B {money(oa['tot_b'])}.")
+             f"Plan A {money(oa['tot_a'])} ({oa['ret_a']:+.1f}%), Plan B {money(oa['tot_b'])} ({oa['ret_b']:+.1f}%).")
     if al_silent:
         ss = stats(al_silent)
         L.append(f"**Silent trades (below the alert score, never sent to you), all history:** {ss['n']} trades, "
@@ -216,7 +221,8 @@ def digest(week_rows, all_rows, period: str) -> str:
     o, oa = stats(split(week_rows)[0]), stats(split(all_rows)[0])
     ss = stats(split(all_rows)[1])
     lines = [f"📚 <b>Weekly review - {period}</b>",
-             f"Your alerted trades this period: {o['n']}, win rate {o['win_rate']:.0f}%, Plan A {money(o['tot_a'])}, Plan B {money(o['tot_b'])}.",
+             f"Your alerted trades this period: {o['n']}, win rate {o['win_rate']:.0f}%, Plan A {money(o['tot_a'])} "
+             f"({o['ret_a']:+.1f}% on money invested), Plan B {money(o['tot_b'])} ({o['ret_b']:+.1f}%).",
              f"All history: {oa['n']} alerted trades, win rate {oa['win_rate']:.0f}%."]
     if ss["n"]:
         lines.append(f"Silent (below alert score): {ss['n']} trades, win rate {ss['win_rate']:.0f}% - "

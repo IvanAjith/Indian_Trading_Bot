@@ -161,6 +161,7 @@ EOD_WARNING_MINUTES_BEFORE_CLOSE = 15
 # ---------------------------------------------------------------------------
 # PAPER TRADING
 # ---------------------------------------------------------------------------
+ACCOUNT_SIZE = 100000.0           # your real account, used only to show "profit as % of the account" in summaries
 PAPER_STARTING_CAPITAL = 1000000.0   # 3 lots of an index option can cost ~Rs1.4 lakh each, so the paper account is Rs10 lakh
 PAPER_LOG_FILE = "paper_trades.csv"
 JOURNAL_DIR = "journal"                   # per-trade journal: daily markdown + trades.jsonl (see journal.py)
