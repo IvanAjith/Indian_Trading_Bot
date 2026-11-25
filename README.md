@@ -305,6 +305,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `journal.py`, `weekly_review.py`, `save_journal.py` | The per-trade journal, the weekly pattern review, and the helper that saves the journal |
 | `.github/workflows/weekly-review.yml` | Friday 17:00 IST weekly review |
 | `config.py` | All settings |
+| `FUTURE_PLAN.md` | Decisions made, review checklist, and the upgrade backlog with the actions for each item |
 | `GITHUB_ACTIONS_DEPLOY.md` | Deployment and health-check details |
 
 ## Known limitations
