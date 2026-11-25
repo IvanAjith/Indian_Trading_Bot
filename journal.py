@@ -84,6 +84,7 @@ def facts(pos) -> dict:
         "date": (opened or dt.datetime.now()).date().isoformat(),
         "symbol": pos.symbol, "option_type": pos.option_type, "strike": pos.strike, "expiry": pos.expiry,
         "is_index": bool(ctx.get("is_index")), "manual": bool(ctx.get("manual")),
+        "alerted": not getattr(pos, "shadow", False),
         "lots": pos.lots_total, "lot_size": pos.lot_size, "n_targets": pos.n_targets,
         "entry": entry, "cost_per_lot": round(entry * pos.lot_size, 2),
         "stoploss": None, "target1": pos.target1, "target2": pos.target2, "target3": pos.target3,
@@ -162,10 +163,10 @@ def diagnose(f: dict, pos=None) -> dict:
         risks.append(("opening", f"entered at {clock}, in the volatile first half hour"))
     if clock and clock >= LATE_FROM:
         risks.append(("late_entry", f"entered at {clock}, late in the day"))
-    thr = getattr(config, "MIN_SIGNAL_SCORE", 70)
+    thr = getattr(config, "ALERT_SCORE", 75)
     if f.get("score") is not None and f["score"] < thr + NEAR_THRESHOLD_MARGIN and not f["manual"]:
-        risks.append(("near_threshold", f"score {f['score']:.0f}, barely above the {thr:.0f} threshold"))
-    if f.get("score") is not None and f["score"] >= getattr(config, "STRONG_SCORE", 80):
+        risks.append(("near_threshold", f"score {f['score']:.0f}, close to or below the {thr:.0f} alert threshold"))
+    if f.get("score") is not None and f["score"] >= getattr(config, "ALERT_SCORE", 75) + 5:
         goods.append(("high_score", f"strong score {f['score']:.0f}"))
     if outcome == "STOP_BEFORE_T1" and f.get("minutes_open") is not None and f["minutes_open"] <= QUICK_STOP_MIN:
         risks.append(("quick_stop", f"stoploss hit {f['minutes_open']:.0f} min after entry"))
@@ -233,7 +234,8 @@ def render_markdown(f: dict, d: dict, why_taken: str) -> str:
     icon = "✅ WIN" if d["win"] else ("❌ LOSS" if f["a_pnl"] < 0 else "➖ FLAT")
     lines = [
         f"### {f['entry_clock']} · {f['symbol']} {f['expiry']} {f['strike']:g} {f['option_type']} "
-        f"({kind}, {f['lots']} lots) — {icon} {_money(f['a_pnl'])}",
+        f"({kind}, {f['lots']} lots{'' if f.get('alerted', True) else ', SILENT - below the alert score, no alert was sent'}) "
+        f"— {icon} {_money(f['a_pnl'])}",
         f"**Outcome:** {d['outcome_label']}",
         f"**Why it was taken:** {why_taken}",
         "**How it played out:**",

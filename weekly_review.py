@@ -163,15 +163,28 @@ def _table(by: dict) -> list:
     return lines
 
 
+def split(rows):
+    """(alerted trades, silent trades) - silent ones were tracked below the alert score and never sent to you."""
+    return ([r for r in rows if r.get("alerted", True)], [r for r in rows if not r.get("alerted", True)])
+
+
 def render(week_rows, all_rows, period: str) -> str:
     a_week, a_all = analyse(week_rows), analyse(all_rows)
-    o, oa = a_week["overall"], a_all["overall"]
+    wk_alert, wk_silent = split(week_rows)
+    al_alert, al_silent = split(all_rows)
+    o, oa = stats(wk_alert), stats(al_alert)
     L = [f"# Weekly review - {period}", ""]
-    L.append(f"**This period:** {o['n']} trades, {o['wins']} wins ({o['win_rate']:.0f}%). "
+    L.append(f"**Your alerted trades, this period:** {o['n']} trades, {o['wins']} wins ({o['win_rate']:.0f}%). "
              f"Plan A (full scale-out) {money(o['tot_a'])}; Plan B (1 lot at T1) {money(o['tot_b'])}. "
              f"Before brokerage and taxes.")
-    L.append(f"**All journal history:** {oa['n']} trades, {oa['win_rate']:.0f}% win rate, "
+    L.append(f"**Alerted trades, all history:** {oa['n']} trades, {oa['win_rate']:.0f}% win rate, "
              f"Plan A {money(oa['tot_a'])}, Plan B {money(oa['tot_b'])}.")
+    if al_silent:
+        ss = stats(al_silent)
+        L.append(f"**Silent trades (below the alert score, never sent to you), all history:** {ss['n']} trades, "
+                 f"{ss['win_rate']:.0f}% win rate, Plan A {money(ss['tot_a'])}. "
+                 f"Compare with the alerted win rate above: if they are close, the alert score can come down; "
+                 f"if silent is clearly worse, it is doing its job.")
     if oa["n"] < 30:
         L.append(f"\n> Only {oa['n']} trades so far. Treat everything below as a hint, not a conclusion "
                  f"(groups need at least {MIN_BUCKET} trades before they are flagged).")
@@ -200,10 +213,14 @@ def render(week_rows, all_rows, period: str) -> str:
 
 def digest(week_rows, all_rows, period: str) -> str:
     a_week, a_all = analyse(week_rows), analyse(all_rows)
-    o, oa = a_week["overall"], a_all["overall"]
+    o, oa = stats(split(week_rows)[0]), stats(split(all_rows)[0])
+    ss = stats(split(all_rows)[1])
     lines = [f"📚 <b>Weekly review - {period}</b>",
-             f"This period: {o['n']} trades, win rate {o['win_rate']:.0f}%, Plan A {money(o['tot_a'])}, Plan B {money(o['tot_b'])}.",
-             f"All history: {oa['n']} trades, win rate {oa['win_rate']:.0f}%."]
+             f"Your alerted trades this period: {o['n']}, win rate {o['win_rate']:.0f}%, Plan A {money(o['tot_a'])}, Plan B {money(o['tot_b'])}.",
+             f"All history: {oa['n']} alerted trades, win rate {oa['win_rate']:.0f}%."]
+    if ss["n"]:
+        lines.append(f"Silent (below alert score): {ss['n']} trades, win rate {ss['win_rate']:.0f}% - "
+                     f"{'close to the alerted rate: the alert score may be too high' if ss['n'] >= 8 and ss['win_rate'] >= oa['win_rate'] - 5 else 'compare with the alerted rate'}.")
     if a_week["reasons"]:
         top = ", ".join(f"{jr.RISK_FACTORS[c][0]} ({n})" for c, n in a_week["reasons"].most_common(3))
         lines.append(f"Most common warning signs in losers: {top}.")
