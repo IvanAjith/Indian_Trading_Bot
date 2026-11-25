@@ -60,7 +60,7 @@ def estimate_win_probability(score: float) -> float:
       - backtest_report.html's win_rate_pct per symbol.
     Those are actual outcomes; this number is not.
     """
-    lo_score, lo_prob = config.MIN_SIGNAL_SCORE, 55.0   # floor: barely qualifies
+    lo_score, lo_prob = config.ALERT_SCORE, 55.0   # floor: barely qualifies for an alert
     hi_score, hi_prob = 100.0, 88.0                     # ceiling: near-perfect score
     score = max(lo_score, min(score, hi_score))
     frac = (score - lo_score) / (hi_score - lo_score) if hi_score > lo_score else 0.0
