@@ -18,6 +18,9 @@ on:
       session_end:
         description: "End the session at this IST time (HH:MM)"
         default: "15:10"
+      already_alerted:
+        description: "Restart helper: stocks/indexes that already alerted today, comma-separated (e.g. NIFTY,BANKNIFTY,ITC). They stay quiet."
+        default: ""
 
 # Never let two sessions overlap (they would both answer Telegram commands).
 concurrency:
@@ -41,6 +44,7 @@ jobs:
       TB_TELEGRAM_TOKEN: ${{ secrets.TB_TELEGRAM_TOKEN }}
       TB_TELEGRAM_CHAT_ID: ${{ secrets.TB_TELEGRAM_CHAT_ID }}
       SESSION_END: ${{ github.event.inputs.session_end || vars.SESSION_END || '15:10' }}
+      ALREADY_ALERTED: ${{ github.event.inputs.already_alerted || '' }}
     steps:
       - name: Skip if today's session end time has already passed
         id: guard
@@ -65,7 +69,7 @@ jobs:
       - name: Run bot until session end
         if: steps.guard.outputs.go == 'true'
         shell: bash   # enables pipefail so a crash fails the job
-        run: python -u main.py --mode monitor --paper --broker angelone --strict --skip-if-closed --session-end "$SESSION_END" 2>&1 | tee monitor.log
+        run: python -u main.py --mode monitor --paper --broker angelone --strict --skip-if-closed --session-end "$SESSION_END" --already-alerted "$ALREADY_ALERTED" 2>&1 | tee monitor.log
       - name: Save logs and paper trades
         if: always() && steps.guard.outputs.go == 'true'
         uses: actions/upload-artifact@v4

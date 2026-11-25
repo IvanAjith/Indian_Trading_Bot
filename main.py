@@ -24,7 +24,7 @@ from strategy import build_trade_idea, _pick_strike
 from paper_trader import PaperTradingAccount
 from telegram_notifier import (
     notify_new_signals, send_telegram_message, format_exit_message, poll_status_requests,
-    format_watchlist_message, format_eod_check_message, format_t1_message, format_trades_summary, format_plan_check, fmt_strike,
+    format_watchlist_message, format_eod_check_message, format_t1_message, format_trades_summary, format_plan_check, format_trade_ledger, fmt_strike,
 )
 import backtest as bt
 
@@ -142,7 +142,7 @@ def find_leg(snap, pos):
 
 
 def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, session_end: str = None,
-                skip_if_closed: bool = False):
+                skip_if_closed: bool = False, already_alerted: list = None):
     """Runs continuously, re-scanning every config.MONITOR_INTERVAL_SECONDS
     while the market is open. Unlike --mode watchlist (a single snapshot),
     this only alerts on setups NOT already alerted on today, so you get a
@@ -197,7 +197,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         "last_scan_at": None, "alerted_today": set(), "last_signal_count": 0,
         "day_log": _fresh_day_log(), "watchlisted_today": set(),
         "eod_warned_today": set(), "last_snap_by_symbol": {},
-        "scans": 0, "symbols_scanned": 0, "scan_secs": [], "suppressed_logged": set(), "alerts_by_symbol": {}, "closed_checked": not skip_if_closed,
+        "scans": 0, "symbols_scanned": 0, "scan_secs": [], "suppressed_logged": set(),
+        "alerts_by_symbol": {s.strip().upper(): 1 for s in (already_alerted or []) if s.strip()}, "closed_checked": not skip_if_closed,
         "watchlist_score_history": {},  # {(symbol, bias): last-seen score} -
                                         # used to only alert when a setup is
                                         # actually strengthening, not just
@@ -259,7 +260,12 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 f"@ ₹{s['entry']:.2f} (score {s['score']:.0f}, ~{s['win_probability']:.0f}% est.)"
             )
 
-        if fills:
+        if account and account.open_positions:
+            lines.append("")
+            lines.append(format_trade_ledger(account.open_positions, _live_price))
+            lines.append("")
+            lines.append(format_plan_check(account.open_positions, _live_price))
+        elif fills:
             total_pnl = round(sum(f["pnl"] for f in fills), 2)
             lines.append(f"\n\U0001F51A Exits/fills: {len(fills)}")
             for f in fills:
@@ -271,8 +277,6 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             lines.append(f"\n{pnl_emoji} Today's P&L: ₹{total_pnl:+.2f}")
         else:
             lines.append("\nNo exits/fills yet today.")
-        if account and account.open_positions:
-            lines.append("\n" + format_plan_check(account.open_positions, _live_price))
         return "\n".join(lines)
 
     def _handle_hold(arg: str) -> str:
@@ -355,6 +359,17 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         leg = find_leg(snap, pos)
         return leg.ltp if leg else None
 
+    def _handle_seen(arg: str) -> str:
+        """/seen SYMBOL [SYMBOL ...] - mark stocks/indexes as ALREADY alerted today (e.g. after a restart),
+        so the one-alert-per-day rule keeps them quiet."""
+        symbols = [s.strip().upper() for s in arg.replace(",", " ").split() if s.strip()]
+        if not symbols:
+            done = ", ".join(sorted(state["alerts_by_symbol"])) or "none"
+            return f"Usage: /seen SYMBOL [SYMBOL ...]   Already marked today: {done}"
+        for s in symbols:
+            state["alerts_by_symbol"][s] = max(state["alerts_by_symbol"].get(s, 0), 1)
+        return f"✅ Marked as already alerted today: {', '.join(symbols)}. No more alerts on them today."
+
     def _handle_add(arg: str) -> str:
         """/add SYMBOL STRIKE CE|PE ENTRY [LOTS] - track a trade you took yourself."""
         usage = "Usage: /add SYMBOL STRIKE CE|PE ENTRY [LOTS]   e.g. /add NIFTY 25800 CE 249.87"
@@ -401,6 +416,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             "/pnl - profit and loss (booked + open)\n"
             "/summary - today's signals, exits and P&L\n"
             "/add SYMBOL STRIKE CE|PE ENTRY [LOTS] - track a trade you took yourself\n"
+            "/seen SYMBOL [SYMBOL ...] - mark stocks as already alerted today\n"
             "/close SYMBOL [price] - record a position as closed\n"
             "<i>I only answer while a session is running (09:15 IST onward).</i>"
         )
@@ -457,7 +473,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
     telegram_commands = {
         "status": _status_text, "summary": _summary_text,
         "hold": _handle_hold, "close": _handle_close,
-        "help": _handle_help, "start": _handle_help, "add": _handle_add,
+        "help": _handle_help, "start": _handle_help, "add": _handle_add, "seen": _handle_seen,
         "trades": _handle_trades, "pnl": _handle_pnl,
     }
 
@@ -823,6 +839,8 @@ if __name__ == "__main__":
                          help="with --mode monitor, also track paper positions continuously")
     parser.add_argument("--strict", action="store_true",
                          help="never fall back to mock data; fail loudly (used for unattended runs)")
+    parser.add_argument("--already-alerted", default="", metavar="SYM,SYM",
+                         help="monitor mode: stocks/indexes that already alerted today (e.g. after a restart) - they stay quiet")
     parser.add_argument("--skip-if-closed", action="store_true",
                          help="monitor mode: confirm via live data that NSE traded today; if not (holiday), message and exit")
     parser.add_argument("--session-end", default=None, metavar="HH:MM",
@@ -845,4 +863,5 @@ if __name__ == "__main__":
         run_backtest(provider)
     elif args.mode == "monitor":
         run_monitor(provider, use_paper=args.paper, max_cycles=args.max_cycles,
-                    session_end=args.session_end, skip_if_closed=args.skip_if_closed)
+                    session_end=args.session_end, skip_if_closed=args.skip_if_closed,
+                    already_alerted=args.already_alerted.split(","))

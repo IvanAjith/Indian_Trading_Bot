@@ -82,13 +82,29 @@ class PaperPosition:
             total += (price - self.entry) * self.lots_remaining * self.lot_size
         return round(total, 2)
 
-    def t1_only_pnl(self, price: float = None) -> float:
-        """What the same trade would have made if ALL lots had been sold the moment Target 1 was reached.
-        If Target 1 was never reached the plans are identical, so this equals actual_pnl()."""
+    def plan_a(self, price: float = None):
+        """3-lot scale-out (what the bot follows): (capital invested, amount returned, profit/loss).
+        Open lots are valued at `price` if given."""
+        invested = self.entry * self.lot_size * self.lots_total
+        pnl = self.actual_pnl(price)
+        return round(invested, 2), round(invested + pnl, 2), pnl
+
+    def plan_b(self, price: float = None):
+        """The alternative: buy just 1 lot and sell it at Target 1. (capital, returned, profit/loss).
+        If Target 1 was never reached the lot simply follows the real exit (stoploss / square-off), and
+        before any exit it is valued at `price`."""
+        lot = self.lot_size
+        invested = self.entry * lot
         if self.t1_price > 0:
-            sell = self.t1_price * (1 - config.PAPER_SLIPPAGE_PCT / 100)
-            return round((sell - self.entry) * self.lots_total * self.lot_size, 2)
-        return self.actual_pnl(price)
+            exit_price = self.t1_price * (1 - config.PAPER_SLIPPAGE_PCT / 100)
+        elif self.fills:
+            exit_price = self.fills[0].price          # never reached T1: every lot left together
+        elif price is not None:
+            exit_price = price
+        else:
+            exit_price = self.entry
+        returned = exit_price * lot
+        return round(invested, 2), round(returned, 2), round(returned - invested, 2)
 
     def __post_init__(self):
         if not self.lots_by_level and self.lots_total == 1:
@@ -118,8 +134,9 @@ class PaperTradingAccount:
         self._ensure_results_header()
 
     _RESULT_FIELDS = ["date", "symbol", "option_type", "strike", "expiry", "lot_size", "lots", "entry",
-                      "t1_reached", "t1_price", "exit_levels", "scale_out_pnl", "t1_only_pnl",
-                      "scale_out_minus_t1_only", "score", "reasons", "opened_at", "closed_at"]
+                      "t1_reached", "t1_price", "exit_levels",
+                      "a_capital", "a_returned", "a_pnl", "b_capital", "b_returned", "b_pnl", "a_minus_b",
+                      "score", "reasons", "opened_at", "closed_at"]
 
     def _ensure_results_header(self):
         path = config.PAPER_RESULTS_FILE
@@ -132,13 +149,15 @@ class PaperTradingAccount:
             csv.DictWriter(f, fieldnames=self._RESULT_FIELDS).writeheader()
 
     def _append_result(self, pos):
-        scale, t1only = pos.actual_pnl(), pos.t1_only_pnl()
+        a_cap, a_ret, a_pnl = pos.plan_a()
+        b_cap, b_ret, b_pnl = pos.plan_b()
         row = {
             "date": dt.date.today().isoformat(), "symbol": pos.symbol, "option_type": pos.option_type,
             "strike": pos.strike, "expiry": pos.expiry, "lot_size": pos.lot_size, "lots": pos.lots_total,
             "entry": pos.entry, "t1_reached": "yes" if pos.t1_price > 0 else "no", "t1_price": pos.t1_price,
             "exit_levels": "/".join(dict.fromkeys(f.level for f in pos.fills)),
-            "scale_out_pnl": scale, "t1_only_pnl": t1only, "scale_out_minus_t1_only": round(scale - t1only, 2),
+            "a_capital": a_cap, "a_returned": a_ret, "a_pnl": a_pnl,
+            "b_capital": b_cap, "b_returned": b_ret, "b_pnl": b_pnl, "a_minus_b": round(a_pnl - b_pnl, 2),
             "score": pos.score, "reasons": "; ".join(pos.reasons), "opened_at": pos.opened_at,
             "closed_at": dt.datetime.now().isoformat(timespec="seconds"),
         }

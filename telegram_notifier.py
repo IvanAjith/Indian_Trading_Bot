@@ -105,8 +105,11 @@ def format_exit_message(position, level: str, lots: int, price: float) -> str:
     what was booked, what the stop was) so the final result is never a surprise."""
     expiry_short = _format_expiry_short(position.expiry)
     reason = _EXIT_REASON_LABELS.get(level, level)
-    stop_at_cost = level == "SL" and position.stoploss >= position.entry
-    if stop_at_cost:
+    stop_at_t1 = level == "SL" and position.stoploss >= position.target1
+    stop_at_cost = level == "SL" and position.stoploss >= position.entry and not stop_at_t1
+    if stop_at_t1:
+        reason = "\U0001F512 Trailing stoploss (at Target 1) hit"
+    elif stop_at_cost:
         reason = "\U0001F512 Cost-to-cost stoploss hit"
     pnl = round((price - position.entry) * lots * position.lot_size, 2)
     pnl_emoji = "\U0001F4B0" if pnl >= 0 else "\U0001F4B8"
@@ -117,13 +120,14 @@ def format_exit_message(position, level: str, lots: int, price: float) -> str:
     story = []
     if position.t1_alerted:
         story.append("\U0001F3AF Target 1 was reached earlier"
-                     + (" - the stoploss had moved to cost" if position.stoploss >= position.entry else ""))
+                     + (" - after Target 2 the stoploss had trailed up to Target 1" if stop_at_t1
+                        else " - the stoploss had moved to cost" if position.stoploss >= position.entry else ""))
     if position.peak_price > position.entry:
         story.append(f"Highest price seen ₹{position.peak_price:.2f} "
                      f"({(position.peak_price / position.entry - 1) * 100:+.0f}% from entry ₹{position.entry:.2f})")
     if position.lots_total == 1 and position.t1_alerted and level != "T1":
         story.append("1 lot cannot be sold in parts, so nothing was booked at T1 - that profit was only on paper")
-    if stop_at_cost and pnl < 0:
+    if (stop_at_cost or stop_at_t1) and pnl < 0:
         story.append("The stop is checked at each scan: price had already slipped below cost by then, "
                      "plus the assumed sell slippage")
 
@@ -178,23 +182,72 @@ def _money(x: float) -> str:
     return f"{'+' if x > 0 else '-'}₹{abs(x):,.2f}"
 
 
+money = _money
+
+
 def format_plan_check(positions: list, live_price) -> str:
-    """Compares the two ways of playing the SAME trades: the 3-lot scale-out (what the bot does) vs selling
-    every lot as soon as Target 1 is reached. Trades that never reached T1 are identical in both."""
+    """The same trades played two ways, with the money side:
+    A) 3 lots, scale-out (1 lot sold at each target) - what the bot follows
+    B) 1 lot only, sold at Target 1.   Before brokerage and taxes."""
     if not positions:
         return ""
-    scale = t1_only = 0.0
+    ai = ar = bi = br = 0.0
     for p in positions:
         price = live_price(p) if p.status != "CLOSED" else None
-        scale += p.actual_pnl(price)
-        t1_only += p.t1_only_pnl(price)
+        c, r, _ = p.plan_a(price)
+        ai, ar = ai + c, ar + r
+        c, r, _ = p.plan_b(price)
+        bi, br = bi + c, br + r
     reached = sum(1 for p in positions if p.t1_price > 0)
-    diff = scale - t1_only
-    better = "scale-out ahead" if diff > 0.5 else ("T1-only ahead" if diff < -0.5 else "same")
-    return (f"\U0001F4CA <b>Plan check</b> ({len(positions)} trades, {reached} reached T1; before charges)\n"
-            f"3-lot scale-out: {_money(round(scale, 2))}\n"
-            f"Sell everything at T1: {_money(round(t1_only, 2))}\n"
-            f"Difference: {_money(round(diff, 2))} ({better})")
+    a_pnl, b_pnl = ar - ai, br - bi
+    return (
+        f"\U0001F4CA <b>Plan comparison</b> ({len(positions)} trades, {reached} reached T1; before charges)\n"
+        f"A) 3 lots, 1 sold at each target:\n"
+        f"   invested ₹{ai:,.0f} → returned ₹{ar:,.0f} = <b>{_money(round(a_pnl, 2))}</b>\n"
+        f"B) 1 lot, sold at T1:\n"
+        f"   invested ₹{bi:,.0f} → returned ₹{br:,.0f} = <b>{_money(round(b_pnl, 2))}</b>"
+    )
+
+
+def format_trade_ledger(positions: list, live_price) -> str:
+    """One block per trade: which targets it hit, how it ended, capital invested -> amount returned, P&L;
+    then totals for the 3-lot plan. Open trades are valued at the latest price."""
+    if not positions:
+        return ""
+    lines = ["\U0001F4D2 <b>Trades today</b>"]
+    inv = ret = 0.0
+    wins = losses = 0
+    for p in positions:
+        price = live_price(p) if p.status != "CLOSED" else None
+        c, r, pnl = p.plan_a(price)
+        inv, ret = inv + c, ret + r
+        wins, losses = wins + (pnl > 0), losses + (pnl < 0)
+        done = {f.level for f in p.fills}
+        steps = ["T1 ✅" if (p.t1_alerted or "T1" in done) else "T1 ✗"]
+        steps += [f"{lv} ✅" for lv in ("T2", "T3") if lv in done]
+        if p.status == "CLOSED":
+            last = p.fills[-1].level if p.fills else ""
+            ending = {"SL": "stoploss hit", "TIME": "square-off", "MANUAL": "closed manually"}.get(last)
+            if ending:
+                where = ""
+                if last == "SL":
+                    where = (" (trailing stop at T1)" if p.stoploss >= p.target1
+                             else " (stop was at cost)" if p.stoploss >= p.entry else "")
+                steps.append(ending + where)
+        else:
+            steps.append("still open")
+        icon = "✅" if pnl > 0 else ("❌" if pnl < 0 else "➖")
+        lines.append(f"{icon} <b>{p.symbol} {fmt_strike(p.strike)} {p.option_type}</b> · "
+                     f"{p.lots_total} lot × {p.lot_size}\n"
+                     f"   {' → '.join(steps)}\n"
+                     f"   ₹{c:,.0f} → ₹{r:,.0f} · <b>{_money(pnl)}</b>")
+    lines.append(
+        f"\n━━━━━━━━━━━━━━\n"
+        f"\U0001F4C5 <b>DAY TOTAL</b> - 3-lot plan (before brokerage and taxes)\n"
+        f"Capital invested: ₹{inv:,.0f}\n"
+        f"Amount returned: ₹{ret:,.0f}\n"
+        f"<b>Profit/Loss: {_money(round(ret - inv, 2))}</b>  ({wins} profit, {losses} loss)")
+    return "\n".join(lines)
 
 
 def format_trades_summary(positions: list, live_price) -> str:
@@ -334,6 +387,22 @@ def format_eod_check_message(pos, current_ltp: float) -> str:
     )
 
 
+def _chunks(text: str, limit: int = 3900) -> list:
+    """Split a long message at line boundaries (Telegram allows 4096 characters per message)."""
+    if len(text) <= limit:
+        return [text]
+    parts, cur = [], ""
+    for line in text.split("\n"):
+        if cur and len(cur) + len(line) + 1 > limit:
+            parts.append(cur)
+            cur = line
+        else:
+            cur = f"{cur}\n{line}" if cur else line
+    if cur:
+        parts.append(cur)
+    return parts
+
+
 def send_telegram_message(text: str) -> bool:
     token, chat_id = _get_credentials()
     if not token or not chat_id:
@@ -341,17 +410,19 @@ def send_telegram_message(text: str) -> bool:
               "See README.md 'Telegram alerts'.")
         return False
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    try:
-        resp = requests.post(url, data={
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "HTML",
-        }, timeout=10)
-        resp.raise_for_status()
-        return True
-    except Exception as exc:
-        print(f"[telegram] send failed: {exc}")
-        return False
+    ok = True
+    for part in _chunks(text):
+        try:
+            resp = requests.post(url, data={
+                "chat_id": chat_id,
+                "text": part,
+                "parse_mode": "HTML",
+            }, timeout=10)
+            resp.raise_for_status()
+        except Exception as exc:
+            print(f"[telegram] send failed: {exc}")
+            ok = False
+    return ok
 
 
 def poll_status_requests(offset, providers: dict) -> int:
