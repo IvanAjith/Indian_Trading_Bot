@@ -23,7 +23,7 @@ from strategy import build_trade_idea
 from paper_trader import PaperTradingAccount
 from telegram_notifier import (
     notify_new_signals, send_telegram_message, format_exit_message, poll_status_requests,
-    format_watchlist_message, format_eod_check_message, format_t1_message,
+    format_watchlist_message, format_eod_check_message, format_t1_message, format_trades_summary,
 )
 import backtest as bt
 
@@ -357,41 +357,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
     def _handle_trades(_arg: str = "") -> str:
         if not account:
             return "Paper trading isn't enabled for this run, so there are no trades to show."
-        everything = account.open_positions
-        open_positions = [p for p in everything if p.status != "CLOSED"]
-        closed = [p for p in everything if p.status == "CLOSED"]
-        if not everything:
-            return "No paper trades yet today."
-        lines = [f"\U0001F4C2 <b>Paper trades today: {len(everything)}</b>  "
-                 f"({len(open_positions)} open, {len(closed)} closed)"]
-        if open_positions:
-            lines.append("\n<b>OPEN</b>")
-        for p in open_positions:
-            price = _live_price(p)
-            if price is not None:
-                unreal = round((price - p.entry) * p.lots_remaining * p.lot_size, 2)
-                now_txt = f"Now ₹{price:.2f} ({unreal:+.2f})"
-            else:
-                now_txt = "Now: no fresh price"
-            booked = ", ".join(sorted(p.booked_levels)) or "none"
-            flag = " ⚠️oversize" if p.oversize else ""
-            lines.append(
-                f"\n<b>{p.symbol} {p.strike:.0f} {p.option_type}</b>  {p.lots_remaining}/{p.lots_total} lots{flag}\n"
-                f"Entry ₹{p.entry:.2f} | {now_txt}\n"
-                f"SL ₹{p.stoploss:.2f} | T1 ₹{p.target1:.2f} T2 ₹{p.target2:.2f} T3 ₹{p.target3:.2f}"
-                f" | booked: {booked}"
-            )
-        if closed:
-            lines.append("\n<b>CLOSED</b>")
-        for p in closed:
-            pnl = sum(f.pnl for f in p.fills)
-            how = "/".join(dict.fromkeys(f.level for f in p.fills)) or "-"
-            lines.append(f"{'✅' if pnl >= 0 else '❌'} {p.symbol} {p.strike:.0f} {p.option_type}  "
-                         f"{how}  ₹{pnl:+.2f}")
-        text = "\n".join(lines)
-        if len(text) > 3800:   # Telegram caps a message at 4096 characters
-            text = text[:3800].rsplit("\n", 1)[0] + "\n... (more trades not shown - see paper_trades.csv)"
-        return text
+        return format_trades_summary(account.open_positions, _live_price)
 
     def _handle_pnl(_arg: str = "") -> str:
         if not account:

@@ -126,6 +126,50 @@ def format_t1_message(position, price: float) -> str:
     )
 
 
+def format_trades_summary(positions: list, live_price) -> str:
+    """Body of the /trades reply: every paper trade today, open ones first with live P&L,
+    then closed ones with result and P&L. live_price(position) -> latest premium or None."""
+    if not positions:
+        return "No paper trades yet today."
+    open_positions = [p for p in positions if p.status != "CLOSED"]
+    closed = [p for p in positions if p.status == "CLOSED"]
+    lines = [f"\U0001F4C2 <b>Paper trades today: {len(positions)}</b>  "
+             f"({len(open_positions)} open, {len(closed)} closed)"]
+    if open_positions:
+        lines.append("\n<b>OPEN</b>")
+    for p in open_positions:
+        price = live_price(p)
+        if price is not None:
+            unreal = round((price - p.entry) * p.lots_remaining * p.lot_size, 2)
+            now_txt = f"Now ₹{price:.2f} ({unreal:+.2f})"
+        else:
+            now_txt = "Now: no fresh price"
+        if p.t1_alerted:
+            status = ("\U0001F3AF T1 reached - stoploss moved to cost" if config.MOVE_SL_TO_COST_AFTER_T1
+                      else "\U0001F3AF T1 reached")
+            if p.booked_levels:
+                status += f" (sold at {', '.join(sorted(p.booked_levels))})"
+        else:
+            status = "waiting for T1"
+        flag = " ⚠️oversize" if p.oversize else ""
+        lines.append(
+            f"\n<b>{p.symbol} {p.strike:.0f} {p.option_type}</b>  {p.lots_remaining}/{p.lots_total} lots{flag}\n"
+            f"Entry ₹{p.entry:.2f} | {now_txt}\n"
+            f"SL ₹{p.stoploss:.2f} | T1 ₹{p.target1:.2f} T2 ₹{p.target2:.2f} T3 ₹{p.target3:.2f}\n"
+            f"{status}"
+        )
+    if closed:
+        lines.append("\n<b>CLOSED</b>")
+    for p in closed:
+        pnl = sum(f.pnl for f in p.fills)
+        how = "/".join(dict.fromkeys(f.level for f in p.fills)) or "-"
+        lines.append(f"{'✅' if pnl >= 0 else '❌'} {p.symbol} {p.strike:.0f} {p.option_type}  {how}  ₹{pnl:+.2f}")
+    text = "\n".join(lines)
+    if len(text) > 3800:   # Telegram caps a message at 4096 characters
+        text = text[:3800].rsplit("\n", 1)[0] + "\n... (more trades not shown - see paper_trades.csv)"
+    return text
+
+
 def format_watchlist_message(result) -> str:
     """Lighter-weight than format_signal_message - for a symbol with a real
     directional bias that hasn't cleared MIN_SIGNAL_SCORE yet. `result` is a
