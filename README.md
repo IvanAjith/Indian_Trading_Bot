@@ -62,10 +62,11 @@ Each symbol gets a 0-100 **score**:
 - **Stoploss:** −18% on the option price. **Targets:** +15% (T1), +30% (T2), +50% (T3); sell 40% / 30% / 30%.
 - **At Target 1:** you get an alert to **move your stoploss to cost (cost-to-cost)**; the paper account
   does the same.
-- **One active trade per stock/index.** While a trade on, say, NIFTY is still running (target / stoploss
-  not finished) the bot sends **no further NIFTY alert or heads-up at all** - same direction at a new
-  strike, *or* the opposite direction (no panic-reversals: you wait for the trade to hit target or stoploss).
-  After it closes there is a 30-minute cooldown (`REENTRY_COOLDOWN_MIN`) before NIFTY can alert again.
+- **One alert per stock/index per day.** Once NIFTY (or any stock) has produced an entry alert, the bot sends
+  **nothing more on it for the rest of the day** - no entry alert and no heads-up, CE or PE, any strike, and
+  regardless of how that trade ends (targets hit, stoploss hit, or still open). Trades you register with
+  `/add` count as that symbol's alert. The only exception: a new signal scoring **90 or more**
+  (`REALERT_MIN_SCORE`), at most once more per symbol per day (`REALERT_MAX_PER_DAY`).
 - **Every alert is paper-traded** (`PAPER_TRACK_ALL_SIGNALS`), so `/trades` and `paper_trades.csv` match
   your alerts one-to-one. No cap on open positions.
 - **Position size:** real NSE **lot size** from Angel One's contract list. Lots are chosen so the loss at
@@ -187,7 +188,7 @@ Optional visual backtest (approximate - uses daily candles and a fixed-delta pre
 | `MIN_SIGNAL_SCORE` / `WATCHLIST_MIN_SCORE` | 70 / 60 | How strict signals / heads-ups are |
 | `STOPLOSS_PCT`, `TARGET_PCT_T1/T2/T3` | 18, 15/30/50 | Stop and targets on the option price |
 | `MOVE_SL_TO_COST_AFTER_T1` | True | Move the stop to entry once T1 is reached |
-| `ONE_ACTIVE_PER_UNDERLYING`, `REENTRY_COOLDOWN_MIN` | True, 30 | No other alert (either direction) on a stock/index while its trade is open; wait N min after it closes |
+| `ONE_ALERT_PER_UNDERLYING_PER_DAY`, `REALERT_MIN_SCORE`, `REALERT_MAX_PER_DAY` | True, 90, 1 | One alert per stock/index per day; only a score of 90+ can alert it once more |
 | `PAPER_TRACK_ALL_SIGNALS` | True | Paper-trade every alert (no position cap; oversize lots tracked as 1 lot) |
 | `MAX_CAPITAL_PER_TRADE_PCT`, `MAX_TRADES_PER_DAY` | 5, 3 | Risk per trade / max open positions (the cap applies only if tracking-all is False) |
 | `PAPER_SLIPPAGE_PCT`, `PAPER_STARTING_CAPITAL` | 1.0, 1,00,000 | Paper-trading realism |
