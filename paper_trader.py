@@ -127,8 +127,14 @@ class PaperTradingAccount:
             writer.writeheader()
 
     def open_trade(self, idea: TradeIdea, lots: int = None) -> PaperPosition:
-        lots = lots if lots is not None else position_size(self.capital, idea.entry, idea.lot_size)
         oversize = False
+        if lots is None and config.LOTS_PER_TRADE:
+            lots = int(config.LOTS_PER_TRADE)
+            # informational flag: the planned size risks more than the max-loss rule allows
+            risk = idea.entry * (config.STOPLOSS_PCT / 100) * idea.lot_size * lots
+            oversize = risk > self.capital * config.MAX_CAPITAL_PER_TRADE_PCT / 100
+        elif lots is None:
+            lots = position_size(self.capital, idea.entry, idea.lot_size)
         if lots <= 0 and config.PAPER_TRACK_ALL_SIGNALS:
             lots, oversize = 1, True
             print(f"[paper] {idea.symbol} {idea.strike:g} {idea.option_type}: one lot is above the "
@@ -167,7 +173,7 @@ class PaperTradingAccount:
         """Register a trade you took yourself. Uses YOUR entry price as-is (no extra slippage), the
         usual stoploss/targets from config, and tracks it like any other paper trade."""
         if lots is None:
-            lots = max(position_size(self.capital, entry, lot_size), 1)
+            lots = int(config.LOTS_PER_TRADE) if config.LOTS_PER_TRADE else max(position_size(self.capital, entry, lot_size), 1)
         pos = PaperPosition(
             symbol=symbol, option_type=option_type, strike=strike, expiry=expiry, entry=round(entry, 2),
             target1=round(entry * (1 + config.TARGET_PCT_T1 / 100), 2),
@@ -220,6 +226,8 @@ class PaperTradingAccount:
                     if lots_here > 0:
                         self._fill(pos, level, lots_here, current_ltp)
                         pos.booked_levels.add(level)
+                        if level == "T2" and config.TRAIL_SL_TO_T1_AFTER_T2:
+                            pos.stoploss = max(pos.stoploss, pos.target1)   # trail the stop up to Target 1
 
             if force_exit and pos.lots_remaining > 0 and not pos.held_over:
                 self._fill(pos, "TIME", pos.lots_remaining, current_ltp)

@@ -59,9 +59,16 @@ Each symbol gets a 0-100 **score**:
 ## The trade plan (paper account)
 
 - **Entry:** at-the-money option (nearest expiry). Paper fills assume **1% slippage** each side.
-- **Stoploss:** −18% on the option price. **Targets:** +15% (T1), +30% (T2), +50% (T3); sell 40% / 30% / 30%.
-- **At Target 1:** you get an alert to **move your stoploss to cost (cost-to-cost)**; the paper account
-  does the same.
+- **Every trade buys 3 lots** (`LOTS_PER_TRADE`) and scales out, one lot per target:
+  - **T1 (+15%):** sell 1 lot; the stoploss on the other 2 moves to **cost** (cost-to-cost).
+  - **T2 (+30%):** sell 1 more lot; the stoploss on the last lot trails up to the **T1 price**.
+  - **T3 (+50%):** sell the last lot - trade done.
+  - **Before T1:** the stoploss is −18%, on all 3 lots.
+  Each step has an alert telling you what to do. If the stop at cost is hit, the 2 remaining lots exit at about
+  cost, so the trade is roughly "T1 profit minus a little" - not guaranteed, because prices are checked once per
+  scan and can fall past the stop (plus the assumed 1% sell slippage).
+- The paper account is ₹10 lakh (3 lots of an index option can cost ₹1.4 lakh each); trades whose planned size
+  risks more than the 5% max-loss rule on that capital are flagged ⚠️oversize (information only).
 - **One alert per stock/index per day.** Once NIFTY (or any stock) has produced an entry alert, the bot sends
   **nothing more on it for the rest of the day** - no entry alert and no heads-up, CE or PE, any strike, and
   regardless of how that trade ends (targets hit, stoploss hit, or still open). Trades you register with
@@ -69,10 +76,8 @@ Each symbol gets a 0-100 **score**:
   (`REALERT_MIN_SCORE`), at most once more per symbol per day (`REALERT_MAX_PER_DAY`).
 - **Every alert is paper-traded** (`PAPER_TRACK_ALL_SIGNALS`), so `/trades` and `paper_trades.csv` match
   your alerts one-to-one. No cap on open positions.
-- **Position size:** real NSE **lot size** from Angel One's contract list. Lots are chosen so the loss at
-  the stoploss is ≤ **5% of capital** and the premium is affordable. If even one lot is too big, it is
-  still tracked as **1 lot** and marked ⚠️ oversize (so you can still judge the signal). A one-lot trade
-  can't be split, so it exits fully at T2.
+- **Lot size** comes from Angel One's contract list (e.g. NIFTY 65, BANKNIFTY 30). If you set
+  `LOTS_PER_TRADE = None`, the size follows the 5% max-loss rule instead (and a 1-lot trade exits fully at T2).
 - Everything is squared off at **15:05**.
 
 ---
@@ -200,11 +205,12 @@ Optional visual backtest (approximate - uses daily candles and a fixed-delta pre
 |---|---|---|
 | `MIN_SIGNAL_SCORE` / `WATCHLIST_MIN_SCORE` | 70 / 60 | How strict signals / heads-ups are |
 | `STOPLOSS_PCT`, `TARGET_PCT_T1/T2/T3` | 18, 15/30/50 | Stop and targets on the option price |
-| `MOVE_SL_TO_COST_AFTER_T1` | True | Move the stop to entry once T1 is reached |
+| `LOTS_PER_TRADE` | 3 | Lots bought per trade (1 sold at each target); `None` = size by the risk rule |
+| `MOVE_SL_TO_COST_AFTER_T1`, `TRAIL_SL_TO_T1_AFTER_T2` | True, True | Stop to cost after T1; stop to the T1 price after T2 |
 | `ONE_ALERT_PER_UNDERLYING_PER_DAY`, `REALERT_MIN_SCORE`, `REALERT_MAX_PER_DAY` | True, 90, 1 | One alert per stock/index per day; only a score of 90+ can alert it once more |
-| `PAPER_TRACK_ALL_SIGNALS` | True | Paper-trade every alert (no position cap; oversize lots tracked as 1 lot) |
+| `PAPER_TRACK_ALL_SIGNALS` | True | Paper-trade every alert (no position cap) |
 | `MAX_CAPITAL_PER_TRADE_PCT`, `MAX_TRADES_PER_DAY` | 5, 3 | Risk per trade / max open positions (the cap applies only if tracking-all is False) |
-| `PAPER_SLIPPAGE_PCT`, `PAPER_STARTING_CAPITAL` | 1.0, 1,00,000 | Paper-trading realism |
+| `PAPER_SLIPPAGE_PCT`, `PAPER_STARTING_CAPITAL` | 1.0, 10,00,000 | Paper-trading realism |
 | `FORCE_EXIT_TIME` | 15:05 | Intraday square-off time |
 | `AUTO_UNIVERSE`, `AUTO_UNIVERSE_MAX_STOCKS`, `STOCK_UNIVERSE` | True, 80 | What is scanned (more = slower scans) |
 | `FETCH_IV` | False | Extra IV call per symbol (a near-constant score input) |

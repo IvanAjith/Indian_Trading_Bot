@@ -56,6 +56,16 @@ def _now_str() -> str:
     return dt.datetime.now().strftime("%I:%M %p").lstrip("0")
 
 
+def _plan_line(idea) -> str:
+    n = int(config.LOTS_PER_TRADE or 0)
+    if n < 2:
+        return ""
+    cost = idea.entry * idea.lot_size * n
+    loss = (idea.entry - idea.stoploss) * idea.lot_size * n
+    return (f"\U0001F4CB Plan: buy {n} lots (₹{cost:,.0f}, max loss at SL ≈ ₹{loss:,.0f}). Sell 1 lot at T1 "
+            f"(stop on the rest → cost), 1 at T2 (stop → T1), last at T3.")
+
+
 def format_signal_message(idea) -> str:
     expiry_short = _format_expiry_short(idea.expiry)
     reasons = "; ".join(idea.reasons) if idea.reasons else "momentum setup"
@@ -69,7 +79,8 @@ def format_signal_message(idea) -> str:
         f"\U0001F3AF Target 3: ₹{idea.target3:.2f}\n"
         f"\U0001F6D1 Stoploss: ₹{idea.stoploss:.2f}\n\n"
         f"\U0001F4E6 Lot size {idea.lot_size} | 1 lot costs ₹{idea.entry * idea.lot_size:,.0f} | "
-        f"max loss at SL ≈ ₹{(idea.entry - idea.stoploss) * idea.lot_size:,.0f} per lot\n\n"
+        f"max loss at SL ≈ ₹{(idea.entry - idea.stoploss) * idea.lot_size:,.0f} per lot\n"
+        f"{_plan_line(idea)}\n\n"
         f"\U0001F4CA Score: {idea.score:.0f}/100\n"
         f"\U0001F4C8 Est. success probability: {idea.win_probability:.0f}% "
         f"<i>(heuristic, not a guarantee)</i>\n\n"
@@ -131,6 +142,11 @@ def format_exit_message(position, level: str, lots: int, price: float) -> str:
         lines.append("Position fully closed.")
     else:
         lines.append(f"{remaining} lot(s) still open, running toward the next target.")
+        if level == "T1" and config.MOVE_SL_TO_COST_AFTER_T1:
+            lines.append(f"\U0001F512 Stoploss on the remaining {remaining} lot(s): cost ₹{position.entry:.2f}")
+        if level == "T2" and config.TRAIL_SL_TO_T1_AFTER_T2:
+            lines.append(f"\U0001F512 Move the stoploss on the remaining {remaining} lot(s) up to Target 1: "
+                         f"₹{position.target1:.2f}")
         lines.append(f"Booked so far on this trade: ₹{total:+.2f}")
     return "\n".join(lines)
 
@@ -151,7 +167,7 @@ def format_t1_message(position, price: float) -> str:
         f"⏰ {_now_str()}\n\n"
         f"Price ₹{price:.2f} ({gain_pct:+.0f}% from entry ₹{position.entry:.2f})\n\n"
         f"{sl_line}"
-        f"Book partial profit if you hold more than one lot.\n"
+        f"{'Sell 1 lot now (Target 1) and keep the rest with the stop at cost.' if (config.LOTS_PER_TRADE or 0) > 1 else 'Book partial profit if you hold more than one lot.'}\n"
         f"Still running toward: T2 ₹{position.target2:.2f} | T3 ₹{position.target3:.2f}"
     )
 
