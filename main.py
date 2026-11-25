@@ -14,6 +14,7 @@ NSE or your broker, and market-hours awareness. See README.md.
 
 import argparse
 import datetime as dt
+import threading
 import time
 
 import config
@@ -488,8 +489,33 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             f"\U0001F7E2 <b>Bot started</b> {dt.datetime.now():%d %b %H:%M} IST\n"
             f"Scanning every ~{config.MONITOR_INTERVAL_SECONDS}s (plus scan time)"
             f"{' until ' + session_end + ' IST (24-hour clock)' if session_end else ''}. "
-            f"Signals at score {config.MIN_SIGNAL_SCORE:.0f}+."
+            f"Signals at score {config.MIN_SIGNAL_SCORE:.0f}+.\n"
+            f"First scan takes a few minutes (it loads history for every symbol); "
+            f"you can already send /add or /trades meanwhile."
         )
+
+    def _fetch_while_polling():
+        """Run one market scan in a background thread and keep answering Telegram commands every
+        few seconds while it runs. The first scan of a session downloads history for every symbol
+        and can take several minutes - commands (/add, /trades, ...) must not sit unanswered."""
+        nonlocal telegram_offset
+        box = {}
+
+        def work():
+            try:
+                box["snaps"] = fetch_all_snapshots(provider)
+            except Exception as exc:   # surfaced in the main thread below
+                box["error"] = exc
+
+        worker = threading.Thread(target=work, daemon=True)
+        worker.start()
+        while worker.is_alive():
+            worker.join(timeout=config.STATUS_POLL_INTERVAL_SECONDS)
+            if worker.is_alive() and config.TELEGRAM_ENABLED:
+                telegram_offset = poll_status_requests(telegram_offset, telegram_commands)
+        if "error" in box:
+            raise box["error"]
+        return box["snaps"]
 
     def _end_session():
         if account:
@@ -564,7 +590,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                                       # drift away from the at-the-money strike
                 provider.watch_contracts = {(p.symbol, p.strike, p.option_type, p.expiry)
                                             for p in account.open_positions if p.status != "CLOSED"}
-            snapshots = fetch_all_snapshots(provider)
+            snapshots = _fetch_while_polling()
             if not snapshots:
                 feed_down_cycles += 1
                 print(f"[monitor] {now:%H:%M} - NO data this cycle ({feed_down_cycles} in a row).")
