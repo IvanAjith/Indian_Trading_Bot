@@ -158,6 +158,6 @@ def watchlist_candidates(snapshots: list[UnderlyingSnapshot]) -> list[ScreenResu
     Not a promise that a signal is coming, just an early "worth watching"."""
     results = [screen_symbol(s) for s in snapshots]
     watch = [r for r in results
-             if r.bias != "NEUTRAL" and config.WATCHLIST_MIN_SCORE <= r.score < config.MIN_SIGNAL_SCORE]
+             if r.bias != "NEUTRAL" and config.WATCHLIST_MIN_SCORE <= r.score < config.ALERT_SCORE]
     watch.sort(key=lambda r: r.score, reverse=True)
     return watch

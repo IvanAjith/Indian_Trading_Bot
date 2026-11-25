@@ -72,6 +72,10 @@ class PaperPosition:
     lot_size: int = 1
     n_targets: int = 3           # 3 for indexes, 2 for stocks
     oversize: bool = False       # tracked as 1 lot although it breaks the max-loss rule
+    shadow: bool = False         # silent trade below the alert score: tracked for the journal only
+    context: dict = field(default_factory=dict)   # market context at entry (journal)
+    trough_price: float = 0.0    # lowest premium seen while open
+    t1_at: str = ""              # when Target 1 was first reached
     t1_price: float = 0.0        # price seen when Target 1 was first reached (for the "sell all at T1" comparison)
     peak_price: float = 0.0      # highest premium seen while the trade was open (to show what was given back)
     t1_alerted: bool = False    # True once the "Target 1 reached" alert has been sent
@@ -133,6 +137,7 @@ class PaperTradingAccount:
         self.capital = starting_capital or config.PAPER_STARTING_CAPITAL
         self.log_file = log_file or config.PAPER_LOG_FILE
         self.open_positions: list[PaperPosition] = []
+        self.shadow_positions: list[PaperPosition] = []   # silent trades (never shown in /trades or the totals)
         self.on_fill = on_fill
         self.on_t1 = on_t1   # on_t1(position, price): called once when Target 1 is first reached
         self._ensure_log_header()
@@ -198,7 +203,7 @@ class PaperTradingAccount:
             writer = csv.DictWriter(f, fieldnames=expected_fields)
             writer.writeheader()
 
-    def open_trade(self, idea: TradeIdea, lots: int = None) -> PaperPosition:
+    def open_trade(self, idea: TradeIdea, lots: int = None, shadow: bool = False) -> PaperPosition:
         oversize = False
         planned_lots = plan_for(idea.symbol)[0]
         if lots is None and planned_lots:
@@ -237,9 +242,11 @@ class PaperTradingAccount:
             reasons=list(idea.reasons) if idea.reasons else [],
             lot_size=idea.lot_size,
             n_targets=idea.n_targets,
+            context=dict(getattr(idea, "context", {}) or {}),
             oversize=oversize,
+            shadow=shadow,
         )
-        self.open_positions.append(pos)
+        (self.shadow_positions if shadow else self.open_positions).append(pos)
         return pos
 
     def open_manual(self, symbol: str, option_type: str, strike: float, entry: float, expiry: str,
@@ -257,6 +264,7 @@ class PaperTradingAccount:
             stoploss=round(entry * (1 - config.STOPLOSS_PCT / 100), 2),
             lots_total=lots, opened_at=dt.datetime.now().isoformat(timespec="seconds"),
             reasons=["manual entry (added via /add)"], lot_size=lot_size, n_targets=plan_for(symbol)[1],
+            context={"manual": True},
         )
         self.open_positions.append(pos)
         return pos
@@ -268,13 +276,14 @@ class PaperTradingAccount:
         now = dt.datetime.now()
         force_exit = now.strftime("%H:%M") >= config.FORCE_EXIT_TIME
 
-        for pos in self.open_positions:
+        for pos in self.open_positions + self.shadow_positions:
             if pos.status == "CLOSED" or pos.lots_remaining <= 0:
                 continue
             if not (pos.symbol == symbol and pos.option_type == option_type and pos.strike == strike):
                 continue
 
             pos.peak_price = max(pos.peak_price, current_ltp)
+            pos.trough_price = current_ltp if pos.trough_price <= 0 else min(pos.trough_price, current_ltp)
 
             # Full stoploss on the remaining quantity takes priority.
             if current_ltp <= pos.stoploss:
@@ -286,9 +295,10 @@ class PaperTradingAccount:
             if not pos.t1_alerted and current_ltp >= pos.target1:
                 pos.t1_alerted = True
                 pos.t1_price = current_ltp
+                pos.t1_at = dt.datetime.now().isoformat(timespec="seconds")
                 if config.MOVE_SL_TO_COST_AFTER_T1:
                     pos.stoploss = max(pos.stoploss, pos.entry)
-                if self.on_t1:
+                if self.on_t1 and not pos.shadow:
                     try:
                         self.on_t1(pos, current_ltp)
                     except Exception as exc:
@@ -324,7 +334,7 @@ class PaperTradingAccount:
         ltp_lookup(position) -> price or None. Used when a run/session ends
         so no paper position is left dangling. Returns the number closed."""
         closed = 0
-        for pos in self.open_positions:
+        for pos in self.open_positions + self.shadow_positions:
             if pos.status == "CLOSED" or pos.lots_remaining <= 0:
                 continue
             price = ltp_lookup(pos)
@@ -349,13 +359,20 @@ class PaperTradingAccount:
         )
         pos.fills.append(fill)
         pos.lots_remaining -= lots
-        self.capital += pnl
-        self._append_log(fill)
+        if not pos.shadow:
+            self.capital += pnl
+            self._append_log(fill)
         pos.status = "CLOSED" if pos.lots_remaining <= 0 else "PARTIAL"
         if pos.status == "CLOSED":
-            self._append_result(pos)
+            if not pos.shadow:
+                self._append_result(pos)
+            try:
+                import journal
+                journal.record_trade(pos)
+            except Exception as exc:
+                print(f"[paper_trader] journal entry failed (not fatal): {exc}")
 
-        if self.on_fill:
+        if self.on_fill and not pos.shadow:
             try:
                 self.on_fill(pos, level, lots, price)
             except Exception as exc:

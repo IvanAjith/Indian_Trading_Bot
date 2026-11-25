@@ -61,13 +61,19 @@ RSI_BEARISH_MAX = 45
 MIN_OI_CHANGE_PCT = 8.0          # % OI change to count as "buildup"
 IV_PERCENTILE_LOOKBACK_DAYS = 252
 
-TOP_N_SIGNALS_PER_DAY = 5        # (legacy default for rank_universe; the real limits are the three settings below)
-MAX_ALERTS_PER_SCAN = 2          # at most this many NEW entry alerts per scan (best score first)
-MAX_ALERTS_PER_DAY = 6           # at most this many entry alerts in a whole day (None = unlimited)
+TOP_N_SIGNALS_PER_DAY = 5        # (legacy default used by rank_universe; the real limits are the settings below)
+ALERT_SCORE = 75.0               # a Telegram ENTRY ALERT is sent for every signal scoring at least this
+SHADOW_TRACK_LOWER_BAND = True   # signals between MIN_SIGNAL_SCORE and ALERT_SCORE send NO alert, but are paper-traded
+                                 # silently and written to the journal, so the weekly review can tell whether the
+                                 # lower band really is worse (and the alert score can be set from data, not a guess)
+MAX_ALERTS_PER_SCAN = 2          # at most this many new alerts per scan, best score first. Others are NOT lost:
+                                 # if they still qualify they alert in the next scan, a minute or two later
+MAX_ALERTS_PER_DAY = None        # optional hard limit on alerts per day (None = no limit)
 MAX_COST_PER_LOT = 35000         # skip signals whose contract costs more than this for ONE lot
                                  # (premium x lot size). Matches a small account: Rs1 lakh = ~3 such trades.
                                  # None = no budget filter. Skipped signals are counted in the daily summary.
-MIN_SIGNAL_SCORE = 70.0          # quality floor - below this, don't surface it
+MIN_SIGNAL_SCORE = 70.0          # floor for any signal at all (70-74.9 are tracked silently, see ALERT_SCORE below)
+                                  # (old comment follows) quality floor - below this, don't surface it
                                   # at all rather than filling out the count.
                                   # Some days will genuinely have 0-2 signals.
                                   # Raised from 65 -> 70 on 2026-07-08 for fewer,
@@ -78,7 +84,7 @@ MIN_SIGNAL_SCORE = 70.0          # quality floor - below this, don't surface it
                                   # further if you want fewer (noisier->cleaner)
                                   # ideas; lower it if you want more of them.
 
-WATCHLIST_MIN_SCORE = 60.0       # symbols scoring in [WATCHLIST_MIN_SCORE, MIN_SIGNAL_SCORE)
+WATCHLIST_MIN_SCORE = 65.0       # symbols scoring in [WATCHLIST_MIN_SCORE, ALERT_SCORE)
                                   # get a lighter-weight "building setup, consider
                                   # watching this" alert instead of a full buy signal.
                                   # Raised from 50 -> 60 on 2026-07-08 (buy threshold is
@@ -154,6 +160,7 @@ EOD_WARNING_MINUTES_BEFORE_CLOSE = 15
 # ---------------------------------------------------------------------------
 PAPER_STARTING_CAPITAL = 1000000.0   # 3 lots of an index option can cost ~Rs1.4 lakh each, so the paper account is Rs10 lakh
 PAPER_LOG_FILE = "paper_trades.csv"
+JOURNAL_DIR = "journal"                   # per-trade journal: daily markdown + trades.jsonl (see journal.py)
 PAPER_RESULTS_FILE = "trade_results.csv"   # one row per CLOSED trade: Plan A (3-lot scale-out) vs Plan B (1 lot sold at T1)
 MOVE_SL_TO_COST_AFTER_T1 = True   # once Target 1 is reached, move the stoploss up to the
                                   # entry price ("cost-to-cost") so the rest of the trade

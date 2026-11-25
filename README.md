@@ -22,7 +22,8 @@ rules really work before risking money.
 | **09:20 - 15:10** | Scans continuously. Sends heads-ups, buy signals, target / stoploss alerts; paper-trades each signal |
 | **~14:55** | End-of-day check-in for any position still open |
 | **15:10** | Every open paper position is squared off, so nothing is carried to the next day |
-| **15:12** | Session ends and sends the **daily summary** (signals, exits, P&L, bot health) |
+| **15:12** | Session ends and sends the **daily summary** (signals, exits, P&L, bot health); the trade journal is saved |
+| **Friday 17:00** | Weekly review of the whole journal sent to Telegram |
 
 If you get no "Bot started" message by ~09:45 on a trading day, something is wrong - open the repo's
 **Actions** tab. GitHub also emails you when a run fails, and the bot sends **❌ Run FAILED**.
@@ -51,14 +52,19 @@ Each symbol gets a 0-100 **score**:
 | Volume | 20% | Today's volume vs the 20-day average |
 | IV | 10% | Off by default (`FETCH_IV`), so effectively a constant |
 
-- Score **≥ 70** → full **buy signal** (call for bullish, put for bearish), best score first, with three limits:
+- Score **75 or more** (`ALERT_SCORE`) → a full **entry alert** (call for bullish, put for bearish). **Every** signal
+  at or above 75 alerts - there is no daily limit - with these rules:
   - **Budget:** signals whose contract costs more than **₹35,000 for one lot** (`MAX_COST_PER_LOT`) are skipped, so
     every alert is something a ₹1 lakh account can take (about 3 trades at once). Skipped ones are counted in the
     daily summary. Index options like BANKNIFTY/FINNIFTY usually fall out; NIFTY stays.
-  - **At most 2 new alerts per scan** (`MAX_ALERTS_PER_SCAN`) - no more opening burst.
-  - **At most 6 entry alerts per day** (`MAX_ALERTS_PER_DAY`); you get one "daily limit reached" message and no more
-    alerts or heads-ups after that (your open trades keep being tracked).
-- Score **60-70 and rising** → one **👀 early heads-up** per stock per day.
+  - **At most 2 alerts per scan** (`MAX_ALERTS_PER_SCAN`), best score first, to avoid an opening burst. Nothing is
+    lost: a signal that does not fit in this scan alerts in the next one, a minute or two later, if it still qualifies.
+  - **One alert per stock/index per day** (see below).
+- Score **70 to 74.9** → **no alert**. These signals are paper-traded **silently** (`SHADOW_TRACK_LOWER_BAND`) and
+  written to the journal, so the weekly review can show whether the lower band really does worse. The summary has a
+  "🔇 Silent tracking" line; they never appear in `/trades` or in your totals. If the silent trades turn out as good
+  as the alerted ones, the alert score can come down; if clearly worse, it stays.
+- Score **65 to 74.9 and rising** → one **👀 early heads-up** per stock per day.
 - Named triggers explain *why* it fired (20-day breakout/breakdown, support bounce/rejection, EMA trend,
   two confirming candles, volume spike, OI buildup).
 
@@ -247,12 +253,37 @@ same in both plans (B is just the same trade with 1 lot).
 Optional visual backtest (approximate - uses daily candles and a fixed-delta premium model):
 `python3 backtest_report.py --broker angelone` → open `backtest_report.html`.
 
+## Trade journal and weekly review
+
+**Every closed trade is written up** (`journal.py`) - automatically, with rules and measured facts, not guesses:
+- **Silent trades** (below the alert score) get entries too, marked SILENT.
+- **Why it was taken:** score, the triggers, RSI, NIFTY's move that day.
+- **How it played out:** entry, when T1 was reached, highest/lowest price, how it ended, result for both plans.
+- **Why it worked / did not work:** the measured factors - weak volume, no open-interest confirmation, against the NIFTY
+  trend, chasing a big move, opening volatility, late entry, barely-passing score, a stop hit within minutes. They are
+  labelled "likely contributors": hints, not proof.
+- **Lesson and how to improve:** one concrete suggestion per warning factor.
+
+Entries are saved after each run to the **`journal-data` branch** of this repo (`journal/YYYY-MM-DD.md` for reading,
+`journal/trades.jsonl` for analysis), so they build up from day to day.
+
+**Every Friday at 17:00 IST** the *Weekly trade review* job reads the whole journal (`weekly_review.py`) and sends a short
+Telegram digest; the full report is `journal/weekly/…md` on the same branch. It shows results by score band, entry time,
+index vs stock, CE vs PE, volume, OI confirmation, NIFTY agreement and cost per lot; which warning factors really go
+with losses (win rate with vs without); the most common warning signs in losers; and **suggested rule changes** - only
+where there are enough trades (a group needs 8+) and a clear gap.
+
+**The bot recommends, you approve.** It never rewrites its own rules: a handful of trades can teach the wrong lesson.
+Bring the weekly suggestions to the review; accepted ones are a one-line change in `config.py`.
+
 ## Settings (`config.py`)
 
 | Setting | Default | What it does |
 |---|---|---|
-| `MIN_SIGNAL_SCORE` / `WATCHLIST_MIN_SCORE` | 70 / 60 | How strict signals / heads-ups are (keep 70 for 7-10 days, then pick a threshold from `trade_results.csv` by score band) |
-| `MAX_COST_PER_LOT`, `MAX_ALERTS_PER_SCAN`, `MAX_ALERTS_PER_DAY` | 35,000, 2, 6 | Budget filter (cost of 1 lot) and alert limits |
+| `ALERT_SCORE` | 75 | Entry alerts for every signal at or above this score |
+| `MIN_SIGNAL_SCORE` / `SHADOW_TRACK_LOWER_BAND` | 70 / True | Floor for any signal; signals between 70 and the alert score are tracked silently for learning |
+| `WATCHLIST_MIN_SCORE` | 65 | Heads-ups for scores from here up to the alert score |
+| `MAX_COST_PER_LOT`, `MAX_ALERTS_PER_SCAN`, `MAX_ALERTS_PER_DAY` | 35,000, 2, None | Budget filter (cost of 1 lot), alerts per scan, optional alerts-per-day limit (None = no limit) |
 | `STOPLOSS_PCT`, `TARGET_PCT_T1/T2/T3` | 18, 15/30/50 | Stop and targets on the option price |
 | `LOTS_PER_TRADE_INDEX`, `TARGETS_INDEX`, `LOTS_PER_TRADE_STOCK`, `TARGETS_STOCK` | 3, 3, 2, 2 | Lots bought and number of targets for index trades and for stock trades (1 lot sold at each target) |
 | `MOVE_SL_TO_COST_AFTER_T1`, `TRAIL_SL_TO_T1_AFTER_T2` | True, True | Stop to cost after T1; for index trades, stop to the T1 price after T2 |
@@ -280,6 +311,8 @@ Optional visual backtest (approximate - uses daily candles and a fixed-delta pre
 | `market_calendar.py`, `holiday_notice.py`, `market_holidays.json` | Holiday lookup and notice |
 | `backtest.py`, `backtest_report.py` | Approximate historical check and HTML report |
 | `diagnose_angelone.py` | Prints raw Angel One responses to debug login/data |
+| `journal.py`, `weekly_review.py`, `save_journal.py` | The per-trade journal, the weekly pattern review, and the helper that saves the journal |
+| `.github/workflows/weekly-review.yml` | Friday 17:00 IST weekly review |
 | `config.py` | All settings |
 | `GITHUB_ACTIONS_DEPLOY.md` | Deployment and health-check details |
 

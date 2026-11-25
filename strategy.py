@@ -11,7 +11,7 @@ an underlying price target into a premium target. It also means risk per
 trade is known and bounded up front, which matters more than precision here.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from data_fetcher import UnderlyingSnapshot, OptionQuote
 from screener import ScreenResult
@@ -35,6 +35,7 @@ class TradeIdea:
     reasons: list         # explicit technical triggers (breakout, OI, etc.)
     lot_size: int = 1               # units per lot, from the option contract
     n_targets: int = 3              # 3 for indexes, 2 for stocks (target3 is unused when 2)
+    context: dict = field(default_factory=dict)   # what the market looked like at entry (for the journal)
     win_probability: float = 0.0   # heuristic estimate, see estimate_win_probability()
 
     @property
@@ -133,6 +134,16 @@ def build_trade_idea(snapshot: UnderlyingSnapshot, screen_result: ScreenResult) 
         win_probability=estimate_win_probability(screen_result.score),
         lot_size=max(int(leg.lot_size or 1), 1),
         n_targets=n_targets,
+        context={
+            "rsi": screen_result.rsi_value,
+            "volume_ratio": screen_result.volume_ratio,
+            "oi_signal": screen_result.oi_signal,
+            "iv_pct": screen_result.iv_pct,
+            "spot": snapshot.spot,
+            "spot_chg_pct": round((snapshot.spot / snapshot.prev_close - 1) * 100, 2) if snapshot.prev_close else None,
+            "is_index": is_index(snapshot.symbol),
+            "cost_per_lot": round(entry * max(int(leg.lot_size or 1), 1), 2),
+        },
     )
 
 
