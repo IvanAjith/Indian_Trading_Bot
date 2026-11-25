@@ -234,7 +234,7 @@ def render_markdown(f: dict, d: dict, why_taken: str) -> str:
     icon = "✅ WIN" if d["win"] else ("❌ LOSS" if f["a_pnl"] < 0 else "➖ FLAT")
     lines = [
         f"### {f['entry_clock']} · {f['symbol']} {f['expiry']} {f['strike']:g} {f['option_type']} "
-        f"({kind}, {f['lots']} lots{'' if f.get('alerted', True) else ', SILENT - below the alert score, no alert was sent'}) "
+        f"({kind}, {f['lots']} lots{'' if f.get('alerted', True) else ', SILENT - no alert was sent (below the alert score, or after the cutoff time)'}) "
         f"— {icon} {_money(f['a_pnl'])}",
         f"**Outcome:** {d['outcome_label']}",
         f"**Why it was taken:** {why_taken}",

@@ -298,7 +298,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 price = _live_price(p) if p.status != "CLOSED" else None
                 v = p.actual_pnl(price)
                 n, wins, pnl = n + 1, wins + (v > 0), pnl + v
-            lines.append(f"\n\U0001F507 Silent tracking (scores {config.MIN_SIGNAL_SCORE:.0f}-{config.ALERT_SCORE - 0.1:.1f}, "
+            lines.append(f"\n\U0001F507 Silent tracking (below {config.ALERT_SCORE:.0f}, or after {config.NO_ALERTS_AFTER}, "
                          f"no alerts sent): {n} trades, {wins} profit / {n - wins} loss, would-have result {money_s(pnl)} "
                          f"(before charges). Used only for learning.")
         return "\n".join(lines)
@@ -403,7 +403,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             idea_s.context["nifty_chg_pct"] = round((nifty_s.spot / nifty_s.prev_close - 1) * 100, 2)
         if account.open_trade(idea_s, shadow=True) is not None:
             state["shadow_symbols"].add(r.symbol)
-            print(f"[monitor] silent tracking: {r.symbol} {idea_s.option_type} (score {r.score:.1f}, below {config.ALERT_SCORE:.0f})")
+            print(f"[monitor] silent tracking: {r.symbol} {idea_s.option_type} (score {r.score:.1f}; "
+                  f"{'after the ' + config.NO_ALERTS_AFTER + ' cutoff' if r.score >= config.ALERT_SCORE else 'below ' + format(config.ALERT_SCORE, '.0f')})")
 
     def _live_price(pos):
         snap = state["last_snap_by_symbol"].get(pos.symbol)
@@ -740,8 +741,9 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                     continue  # this stock/index already alerted today - no heads-up
                 if previous_score is None or r.score <= previous_score:
                     continue  # flat, weakening, or no baseline yet - not worth alerting
-                if state["daily_cap_hit"]:
-                    continue  # today's entry-alert limit is used up - a heads-up would lead nowhere
+                if state["daily_cap_hit"] or (config.NO_ALERTS_AFTER
+                                              and now.strftime("%H:%M") >= config.NO_ALERTS_AFTER):
+                    continue  # no more entry alerts today (limit used up / past the cutoff) - a heads-up would lead nowhere
                 snap_c = snap_by_symbol.get(r.symbol)
                 try:
                     leg_c = _pick_strike(snap_c, "CE" if r.bias == "BULLISH" else "PE") if snap_c else None
@@ -783,10 +785,11 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                         send_telegram_message(format_watchlist_message(r, watch_legs.get(r.symbol)))
 
             new_ideas = []
+            after_cutoff = bool(config.NO_ALERTS_AFTER) and now.strftime("%H:%M") >= config.NO_ALERTS_AFTER
             for r in ranked:                      # best score first
-                if r.score < config.ALERT_SCORE:
-                    _track_silently(r)            # 70-74.9: no alert, paper-traded for the journal only
-                    continue
+                if r.score < config.ALERT_SCORE or after_cutoff:
+                    _track_silently(r)            # below the alert score, or too late in the day: no alert,
+                    continue                      # paper-traded quietly for the journal only
                 if len(new_ideas) >= config.MAX_ALERTS_PER_SCAN:
                     continue                      # not lost: it alerts in a later scan if it still qualifies
                 if config.MAX_ALERTS_PER_DAY and state["alerts_sent_today"] + len(new_ideas) >= config.MAX_ALERTS_PER_DAY:
