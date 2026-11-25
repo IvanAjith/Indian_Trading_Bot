@@ -62,18 +62,21 @@ Each symbol gets a 0-100 **score**:
 - **Stoploss:** −18% on the option price. **Targets:** +15% (T1), +30% (T2), +50% (T3); sell 40% / 30% / 30%.
 - **At Target 1:** you get an alert to **move your stoploss to cost (cost-to-cost)**; the paper account
   does the same.
+- **Every alert is paper-traded** (`PAPER_TRACK_ALL_SIGNALS`), so `/trades` and `paper_trades.csv` match
+  your alerts one-to-one. No cap on open positions.
 - **Position size:** real NSE **lot size** from Angel One's contract list. Lots are chosen so the loss at
-  the stoploss is ≤ **5% of capital** and the premium is affordable. If even one lot is too big, the paper
-  trade is skipped (the alert is still sent). A one-lot trade can't be split, so it exits fully at T2.
-- At most **3 paper positions open at a time**; everything is squared off at **15:05**.
+  the stoploss is ≤ **5% of capital** and the premium is affordable. If even one lot is too big, it is
+  still tracked as **1 lot** and marked ⚠️ oversize (so you can still judge the signal). A one-lot trade
+  can't be split, so it exits fully at T2.
+- Everything is squared off at **15:05**.
 
 ---
 
 ## Telegram messages
 
-**Buy signal**
+**Entry signal** - long message, starts with 🚨 (this is the one to act on)
 ```
-🆕 New Options Trade
+🚨🚨 ENTRY ALERT - BUY NOW 🚨🚨
 🟢 BUY RELIANCE 29 DEC 1400 CE at ₹32.00
 ⏰ 9:48 AM
 🎯 Target 1: ₹36.80   🎯 Target 2: ₹41.60   🎯 Target 3: ₹48.00
@@ -81,6 +84,12 @@ Each symbol gets a 0-100 **score**:
 📦 Lot size 500 | 1 lot costs ₹16,000 | max loss at SL ≈ ₹2,880 per lot
 📊 Score: 74/100
 💡 Why: broke above 20-day resistance; EMA9 above EMA20; volume 1.8x average; options OI shows long buildup
+```
+
+**Watchlist heads-up** - deliberately tiny, so you can tell it apart at a glance
+```
+👀 WATCH ONLY: RELIANCE ↑ (bullish, score 66)
+Add to watchlist - not an entry yet.
 ```
 
 **Target 1 reached**
@@ -100,7 +109,7 @@ Other automatic messages: 👀 early heads-up · 🔚 exit (T2/T3/stoploss/time)
 |---|---|
 | `/help` | The command list |
 | `/status` | Whether the bot is scanning, last scan time, signals sent |
-| `/trades` | Open paper trades with live P&L, stoploss and targets |
+| `/trades` | All paper trades today: open ones with live P&L, stoploss and targets, closed ones with result and P&L |
 | `/pnl` | Booked + open profit and loss, win rate, paper capital |
 | `/summary` | Today's heads-ups, signals, exits and P&L so far |
 | `/close SYMBOL [price]` | Record a position as closed (at the latest price, or yours) |
@@ -164,7 +173,8 @@ Optional visual backtest (approximate - uses daily candles and a fixed-delta pre
 | `MIN_SIGNAL_SCORE` / `WATCHLIST_MIN_SCORE` | 70 / 60 | How strict signals / heads-ups are |
 | `STOPLOSS_PCT`, `TARGET_PCT_T1/T2/T3` | 18, 15/30/50 | Stop and targets on the option price |
 | `MOVE_SL_TO_COST_AFTER_T1` | True | Move the stop to entry once T1 is reached |
-| `MAX_CAPITAL_PER_TRADE_PCT`, `MAX_TRADES_PER_DAY` | 5, 3 | Risk per trade / max open paper positions |
+| `PAPER_TRACK_ALL_SIGNALS` | True | Paper-trade every alert (no position cap; oversize lots tracked as 1 lot) |
+| `MAX_CAPITAL_PER_TRADE_PCT`, `MAX_TRADES_PER_DAY` | 5, 3 | Risk per trade / max open positions (the cap applies only if tracking-all is False) |
 | `PAPER_SLIPPAGE_PCT`, `PAPER_STARTING_CAPITAL` | 1.0, 1,00,000 | Paper-trading realism |
 | `FORCE_EXIT_TIME` | 15:05 | Intraday square-off time |
 | `AUTO_UNIVERSE`, `AUTO_UNIVERSE_MAX_STOCKS`, `STOCK_UNIVERSE` | True, 80 | What is scanned (more = slower scans) |

@@ -111,7 +111,13 @@ TARGET_ALLOCATIONS = [0.4, 0.3, 0.3]   # must sum to 1.0, matches T1/T2/T3
 TARGET_PCT = TARGET_PCT_T2         # kept for backward compatibility / backtest.py
 STOPLOSS_PCT = 18.0                # cut the whole remaining position at -18%
 MAX_CAPITAL_PER_TRADE_PCT = 5.0    # % of paper/live capital risked per trade
-MAX_TRADES_PER_DAY = 3
+MAX_TRADES_PER_DAY = 3             # max open paper positions at once (ignored while
+                                   # PAPER_TRACK_ALL_SIGNALS is True)
+PAPER_TRACK_ALL_SIGNALS = True     # paper-trade EVERY alert the bot sends, so paper_trades.csv
+                                   # and /trades match your alerts one-to-one. No cap on open
+                                   # positions, and if one lot is bigger than the 5%-risk rule
+                                   # allows it is still tracked as 1 lot (marked "oversize").
+                                   # Set False for a strict, capital-limited simulation.
 FORCE_EXIT_TIME = "15:05"          # square off all intraday positions (IST) - before the 15:10 session end
 
 # How long before FORCE_EXIT_TIME to send an end-of-day check-in for any

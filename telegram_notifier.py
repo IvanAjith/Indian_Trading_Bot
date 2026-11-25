@@ -55,7 +55,7 @@ def format_signal_message(idea) -> str:
     expiry_short = _format_expiry_short(idea.expiry)
     reasons = "; ".join(idea.reasons) if idea.reasons else "momentum setup"
     return (
-        f"\U0001F195 <b>New Options Trade</b>\n"
+        f"\U0001F6A8\U0001F6A8 <b>ENTRY ALERT - BUY NOW</b> \U0001F6A8\U0001F6A8\n"
         f"\U0001F7E2 BUY {idea.symbol} {expiry_short} {idea.strike:.0f} {idea.option_type} "
         f"at ₹{idea.entry:.2f}\n"
         f"⏰ {_now_str()}\n\n"
@@ -134,19 +134,12 @@ def format_watchlist_message(result) -> str:
     on the actual entry price at whatever moment a real signal fires later -
     not worth surfacing here. Check the option chain yourself if you want to
     look, or just wait for the full alert."""
-    bullish = result.bias == "BULLISH"
-    direction_label = "Bullish" if bullish else "Bearish"
-    option_hint = "CE" if bullish else "PE"
-    reasons = "; ".join(result.trigger_reasons) if result.trigger_reasons else "early momentum building"
+    arrow = "↑" if result.bias == "BULLISH" else "↓"
+    word = "bullish" if result.bias == "BULLISH" else "bearish"
     return (
-        f"\U0001F440 <b>{result.symbol} - Building {direction_label} Momentum</b>\n"
-        f"⏰ {_now_str()}\n\n"
-        f"Spot: ₹{result.spot:.2f}\n"
-        f"\U0001F4CA Score: {result.score:.0f}/100 "
-        f"<i>(below the {config.MIN_SIGNAL_SCORE:.0f} buy threshold - not a signal yet)</i>\n\n"
-        f"\U0001F4A1 So far: {reasons}\n\n"
-        f"May be building toward a {option_hint} buy signal - check the option chain "
-        f"yourself if you want to look, or wait for the full 🆕 alert if/when it fires."
+        f"\U0001F440 <b>WATCH ONLY: {result.symbol} {arrow}</b> "
+        f"({word}, score {result.score:.0f})\n"
+        f"Add to watchlist - not an entry yet."
     )
 
 

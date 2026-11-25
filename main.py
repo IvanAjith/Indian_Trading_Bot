@@ -101,7 +101,7 @@ def run_watchlist(provider):
 def run_paper(provider):
     account = PaperTradingAccount()
     ideas = run_watchlist(provider)
-    for idea in ideas[:config.MAX_TRADES_PER_DAY]:
+    for idea in (ideas if config.PAPER_TRACK_ALL_SIGNALS else ideas[:config.MAX_TRADES_PER_DAY]):
         pos = account.open_trade(idea)
         if pos is None:
             continue
@@ -335,10 +335,15 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
     def _handle_trades(_arg: str = "") -> str:
         if not account:
             return "Paper trading isn't enabled for this run, so there are no trades to show."
-        open_positions = [p for p in account.open_positions if p.status != "CLOSED"]
-        if not open_positions:
-            return "No open paper trades right now."
-        lines = [f"\U0001F4C2 <b>Open paper trades ({len(open_positions)})</b>"]
+        everything = account.open_positions
+        open_positions = [p for p in everything if p.status != "CLOSED"]
+        closed = [p for p in everything if p.status == "CLOSED"]
+        if not everything:
+            return "No paper trades yet today."
+        lines = [f"\U0001F4C2 <b>Paper trades today: {len(everything)}</b>  "
+                 f"({len(open_positions)} open, {len(closed)} closed)"]
+        if open_positions:
+            lines.append("\n<b>OPEN</b>")
         for p in open_positions:
             price = _live_price(p)
             if price is not None:
@@ -347,13 +352,24 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             else:
                 now_txt = "Now: no fresh price"
             booked = ", ".join(sorted(p.booked_levels)) or "none"
+            flag = " ⚠️oversize" if p.oversize else ""
             lines.append(
-                f"\n<b>{p.symbol} {p.strike:.0f} {p.option_type}</b>  {p.lots_remaining}/{p.lots_total} lots\n"
+                f"\n<b>{p.symbol} {p.strike:.0f} {p.option_type}</b>  {p.lots_remaining}/{p.lots_total} lots{flag}\n"
                 f"Entry ₹{p.entry:.2f} | {now_txt}\n"
-                f"SL ₹{p.stoploss:.2f} | T1 ₹{p.target1:.2f} T2 ₹{p.target2:.2f} T3 ₹{p.target3:.2f}\n"
-                f"Targets booked: {booked}"
+                f"SL ₹{p.stoploss:.2f} | T1 ₹{p.target1:.2f} T2 ₹{p.target2:.2f} T3 ₹{p.target3:.2f}"
+                f" | booked: {booked}"
             )
-        return "\n".join(lines)
+        if closed:
+            lines.append("\n<b>CLOSED</b>")
+        for p in closed:
+            pnl = sum(f.pnl for f in p.fills)
+            how = "/".join(dict.fromkeys(f.level for f in p.fills)) or "-"
+            lines.append(f"{'✅' if pnl >= 0 else '❌'} {p.symbol} {p.strike:.0f} {p.option_type}  "
+                         f"{how}  ₹{pnl:+.2f}")
+        text = "\n".join(lines)
+        if len(text) > 3800:   # Telegram caps a message at 4096 characters
+            text = text[:3800].rsplit("\n", 1)[0] + "\n... (more trades not shown - see paper_trades.csv)"
+        return text
 
     def _handle_pnl(_arg: str = "") -> str:
         if not account:
@@ -616,7 +632,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 if account:
                     open_count = len([p for p in account.open_positions if p.status != "CLOSED"])
                     room = max(config.MAX_TRADES_PER_DAY - open_count, 0)
-                    for idea in new_ideas[:room]:
+                    to_open = new_ideas if config.PAPER_TRACK_ALL_SIGNALS else new_ideas[:room]
+                    for idea in to_open:
                         pos = account.open_trade(idea)
                         if pos is None:
                             continue
