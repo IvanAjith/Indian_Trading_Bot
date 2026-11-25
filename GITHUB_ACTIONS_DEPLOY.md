@@ -25,7 +25,7 @@ paper positions and sending a summary.
 - Each run's `monitor.log` and `paper_trades.csv` are in the run page under **Artifacts** (kept 90 days).
 
 ## Free-minute budget (private repo = 2,000 min/month)
-The default session is now the **full day**, 09:15-15:10 IST (~6 h/day) - only suitable for a
+The default session is now the **full day**, 09:15-15:12 IST (~6 h/day; GitHub's 6-hour job limit is why the session cannot run later) - only suitable for a
 **public** repo (unlimited minutes). On a **private** repo set repo Variables `SESSION_END=10:30` and
 `JOB_TIMEOUT_MIN=100` (~80 min/day, ~1,750 min/month). To check usage: Settings -> Billing -> Usage.
 - **Public repo** = unlimited minutes (code, logs and artifacts become public; credentials stay safe in Secrets).
@@ -48,7 +48,7 @@ Prices come ~40 per API call. Settings in `config.py`: `AUTO_UNIVERSE`, `AUTO_UN
 The first scan of the day is slower (it downloads daily candles for every symbol once, 3 at a time). The bot says how long it took ("✅ First scan done in X min") and the 15:10 summary reports first/average scan time, API calls and rate-limit retries. Commands you send meanwhile are answered right away.
 
 ## Daily summary and holidays
-- **Summary:** sent when the session ends (15:10 IST with the default full day, or `SESSION_END`),
+- **Summary:** sent when the session ends (15:12 IST with the default full day, or `SESSION_END`; every open paper trade is squared off at 15:10),
   with signals, exits, P&L and a bot-health line (scans completed, symbols per scan).
 - **Holiday in the morning:** the bot waits until 09:20, checks that NIFTY actually has a candle for
   today, and if not sends "Market closed today" and ends (no stale-price signals). If the check cannot

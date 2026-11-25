@@ -17,7 +17,7 @@ on:
     inputs:
       session_end:
         description: "End the session at this IST time (HH:MM)"
-        default: "15:10"
+        default: "15:12"
       already_alerted:
         description: "Restart helper: stocks/indexes that already alerted today, comma-separated (e.g. NIFTY,BANKNIFTY,ITC). They stay quiet."
         default: ""
@@ -30,7 +30,7 @@ concurrency:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    # Backstop only - the bot ends itself at SESSION_END (default 15:10 = full market day,
+    # Backstop only - the bot ends itself at SESSION_END (default 15:12 = full market day,
     # fine for a public repo). For a PRIVATE repo set repo variables SESSION_END=10:30 and
     # JOB_TIMEOUT_MIN=100 to stay inside the 2,000 free minutes/month.
     timeout-minutes: ${{ fromJSON(vars.JOB_TIMEOUT_MIN || '360') }}
@@ -43,7 +43,7 @@ jobs:
       ANGELONE_TOTP_SECRET: ${{ secrets.ANGELONE_TOTP_SECRET }}
       TB_TELEGRAM_TOKEN: ${{ secrets.TB_TELEGRAM_TOKEN }}
       TB_TELEGRAM_CHAT_ID: ${{ secrets.TB_TELEGRAM_CHAT_ID }}
-      SESSION_END: ${{ github.event.inputs.session_end || vars.SESSION_END || '15:10' }}
+      SESSION_END: ${{ github.event.inputs.session_end || vars.SESSION_END || '15:12' }}
       ALREADY_ALERTED: ${{ github.event.inputs.already_alerted || '' }}
     steps:
       - name: Skip if today's session end time has already passed

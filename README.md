@@ -1,7 +1,7 @@
 # NSE F&O Intraday Options Signal Bot (paper-trading stage)
 
 A rules-based bot that watches NSE index and stock options during market hours, sends a
-**Telegram alert** when a setup lines up (entry, three targets, stoploss, lot size, and the reasons),
+**Telegram alert** when a setup lines up (entry, two or three targets, stoploss, lot size, and the reasons),
 and **paper-trades** every signal with a virtual ₹1,00,000 account so you can measure whether the
 rules really work before risking money.
 
@@ -19,10 +19,10 @@ rules really work before risking money.
 | **20:00 (evening before)** | `Market holiday notice` job messages you only if tomorrow is a weekday NSE holiday |
 | **~09:15** | Session starts, logs in to Angel One, sends **🟢 Bot started** |
 | **09:15 - 09:20** | Waits, then confirms via live data that NSE actually traded today. If not (holiday) it sends **📅 Market closed today** and stops |
-| **09:20 - 15:05** | Scans continuously. Sends heads-ups, buy signals, Target 1 / exit alerts; paper-trades each signal |
-| **~14:50** | End-of-day check-in for any position still open |
-| **15:05** | Any open paper position is squared off (intraday only) |
-| **15:10** | Session ends and sends the **daily summary** (signals, exits, P&L, bot health) |
+| **09:20 - 15:10** | Scans continuously. Sends heads-ups, buy signals, target / stoploss alerts; paper-trades each signal |
+| **~14:55** | End-of-day check-in for any position still open |
+| **15:10** | Every open paper position is squared off, so nothing is carried to the next day |
+| **15:12** | Session ends and sends the **daily summary** (signals, exits, P&L, bot health) |
 
 If you get no "Bot started" message by ~09:45 on a trading day, something is wrong - open the repo's
 **Actions** tab. GitHub also emails you when a run fails, and the bot sends **❌ Run FAILED**.
@@ -65,16 +65,17 @@ Each symbol gets a 0-100 **score**:
 ## The trade plan (paper account)
 
 - **Entry:** at-the-money option (nearest expiry). Paper fills assume **1% slippage** each side.
-- **Every trade buys 3 lots** (`LOTS_PER_TRADE`) and scales out, one lot per target:
-  - **T1 (+15%):** sell 1 lot; the stoploss on the other 2 moves to **cost** (cost-to-cost).
-  - **T2 (+30%):** sell 1 more lot; the stoploss on the last lot trails up to the **T1 price**.
-  - **T3 (+50%):** sell the last lot - trade done.
-  - **Before T1:** the stoploss is −18%, on all 3 lots.
-  Each step has an alert telling you what to do. If the stop at cost is hit, the 2 remaining lots exit at about
-  cost, so the trade is roughly "T1 profit minus a little" - not guaranteed, because prices are checked once per
-  scan and can fall past the stop (plus the assumed 1% sell slippage).
-- The paper account is ₹10 lakh (3 lots of an index option can cost ₹1.4 lakh each); trades whose planned size
-  risks more than the 5% max-loss rule on that capital are flagged ⚠️oversize (information only).
+- **What a trade looks like depends on what it is on** (`config.py`):
+  - **Indexes (NIFTY, BANKNIFTY, FINNIFTY): 3 lots, 3 targets** - sell 1 lot at each of T1 (+15%), T2 (+30%), T3 (+50%).
+    After T1 the stoploss on the other 2 lots moves to **cost** (cost-to-cost); after T2 it trails up to the **T1 price**.
+  - **Stocks: 2 lots, 2 targets** - sell 1 lot at T1 (+15%), the other at T2 (+30%) and the trade is done.
+    After T1 the stoploss on the last lot moves to **cost**.
+  - **Before T1** the stoploss is −18% on all lots.
+  Each step has an alert telling you what to do. If the stop at cost is hit, the remaining lots exit at about cost,
+  so the trade is roughly "T1 profit minus a little" - not guaranteed, because prices are checked once per scan and
+  can fall past the stop (plus the assumed 1% sell slippage).
+- The paper account is ₹10 lakh; trades whose planned size risks more than the 5% max-loss rule on that capital are
+  flagged ⚠️oversize (information only).
 - **One alert per stock/index per day.** Once NIFTY (or any stock) has produced an entry alert, the bot sends
   **nothing more on it for the rest of the day** - no entry alert and no heads-up, CE or PE, any strike, and
   regardless of how that trade ends (targets hit, stoploss hit, or still open). Trades you register with
@@ -83,8 +84,8 @@ Each symbol gets a 0-100 **score**:
 - **Every alert is paper-traded** (`PAPER_TRACK_ALL_SIGNALS`), so `/trades` and `paper_trades.csv` match
   your alerts one-to-one. No cap on open positions.
 - **Lot size** comes from Angel One's contract list (e.g. NIFTY 65, BANKNIFTY 30). If you set
-  `LOTS_PER_TRADE = None`, the size follows the 5% max-loss rule instead (and a 1-lot trade exits fully at T2).
-- Everything is squared off at **15:05**.
+  `LOTS_PER_TRADE_INDEX` / `LOTS_PER_TRADE_STOCK` to `None`, the size follows the 5% max-loss rule instead (and a 1-lot trade exits fully at T2).
+- Everything is squared off at **15:10** and the session ends at **15:12**. (GitHub stops a job after 6 hours, so a 09:15 start cannot run much past 15:12.) In your real account, close any trade still open by hand.
 
 ---
 
@@ -132,6 +133,9 @@ Approx loss per lot - ₹9,767.40
 Approx loss for 3 lots - ₹29,302.20
 Close the trade
 ```
+Stock trades have only two targets, so for them the **Target 2** message is the last one: it says
+"🏁 All targets hit … Close the trade". (Index trades go on to Target 3.)
+
 **When the price comes back after a target** the message says which price was reached, which targets were
 already hit, what was booked, and tells you to exit:
 ```
@@ -203,7 +207,7 @@ Cancel the running session first (the workflow runs one session at a time and a 
 
 | Variable | Default | Use |
 |---|---|---|
-| `SESSION_END` | `15:10` | When the session ends (24-hour IST) |
+| `SESSION_END` | `15:12` | When the session ends (24-hour IST) |
 | `JOB_TIMEOUT_MIN` | `360` | Safety stop for the job |
 
 A **public** repo has unlimited free Actions minutes (the default full day is fine). On a **private** repo
@@ -232,13 +236,13 @@ P&L, entry price, score, lot size and the trigger reasons - so you can analyse w
 reasons actually win. Review weekly; judge the rules on weeks of data, not one day.
 
 **Which plan is better? (`trade_results.csv`)** The same trades are always measured two ways, with the money side:
-- **Plan A - 3 lots, scale-out** (what the bot follows): capital invested → amount returned → profit/loss.
+- **Plan A - the full plan** (what the bot follows: index 3 lots / stock 2 lots, 1 lot sold at each target): capital invested → amount returned → profit/loss.
 - **Plan B - 1 lot, sold at Target 1.**
 Every closed trade becomes a row in `trade_results.csv` (columns `a_capital, a_returned, a_pnl, b_capital,
-b_returned, b_pnl, a_minus_b`). `/trades` and the 15:10 summary show the running **Plan comparison**, and the summary
+b_returned, b_pnl, a_minus_b`). `/trades` and the 15:12 summary show the running **Plan comparison**, and the summary
 lists each trade (T1 ✅ → T2 ✅ → stoploss/square-off, invested → returned, P&L) with a **DAY TOTAL**: capital
 invested, amount returned, profit/loss - all before brokerage and taxes. Trades that never reached T1 behave the
-same in both plans (B is simply one third of A's loss).
+same in both plans (B is just the same trade with 1 lot).
 
 Optional visual backtest (approximate - uses daily candles and a fixed-delta premium model):
 `python3 backtest_report.py --broker angelone` → open `backtest_report.html`.
@@ -250,13 +254,13 @@ Optional visual backtest (approximate - uses daily candles and a fixed-delta pre
 | `MIN_SIGNAL_SCORE` / `WATCHLIST_MIN_SCORE` | 70 / 60 | How strict signals / heads-ups are (keep 70 for 7-10 days, then pick a threshold from `trade_results.csv` by score band) |
 | `MAX_COST_PER_LOT`, `MAX_ALERTS_PER_SCAN`, `MAX_ALERTS_PER_DAY` | 35,000, 2, 6 | Budget filter (cost of 1 lot) and alert limits |
 | `STOPLOSS_PCT`, `TARGET_PCT_T1/T2/T3` | 18, 15/30/50 | Stop and targets on the option price |
-| `LOTS_PER_TRADE` | 3 | Lots bought per trade (1 sold at each target); `None` = size by the risk rule |
-| `MOVE_SL_TO_COST_AFTER_T1`, `TRAIL_SL_TO_T1_AFTER_T2` | True, True | Stop to cost after T1; stop to the T1 price after T2 |
+| `LOTS_PER_TRADE_INDEX`, `TARGETS_INDEX`, `LOTS_PER_TRADE_STOCK`, `TARGETS_STOCK` | 3, 3, 2, 2 | Lots bought and number of targets for index trades and for stock trades (1 lot sold at each target) |
+| `MOVE_SL_TO_COST_AFTER_T1`, `TRAIL_SL_TO_T1_AFTER_T2` | True, True | Stop to cost after T1; for index trades, stop to the T1 price after T2 |
 | `ONE_ALERT_PER_UNDERLYING_PER_DAY`, `REALERT_MIN_SCORE`, `REALERT_MAX_PER_DAY` | True, 90, 1 | One alert per stock/index per day; only a score of 90+ can alert it once more |
 | `PAPER_TRACK_ALL_SIGNALS` | True | Paper-trade every alert (no position cap) |
 | `MAX_CAPITAL_PER_TRADE_PCT`, `MAX_TRADES_PER_DAY` | 5, 3 | Risk per trade / max open positions (the cap applies only if tracking-all is False) |
 | `PAPER_SLIPPAGE_PCT`, `PAPER_STARTING_CAPITAL` | 1.0, 10,00,000 | Paper-trading realism |
-| `FORCE_EXIT_TIME` | 15:05 | Intraday square-off time |
+| `FORCE_EXIT_TIME` | 15:10 | Intraday square-off time (nothing is carried overnight) |
 | `AUTO_UNIVERSE`, `AUTO_UNIVERSE_MAX_STOCKS`, `STOCK_UNIVERSE` | True, 80 | What is scanned (more = slower scans) |
 | `FETCH_IV` | False | Extra IV call per symbol (a near-constant score input) |
 

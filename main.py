@@ -90,7 +90,8 @@ def run_watchlist(provider):
             print(
                 f"{idea.symbol:12s} {idea.option_type} {fmt_strike(idea.strike):>8s} "
                 f"exp {idea.expiry} | entry {idea.entry:>7.2f} "
-                f"T1 {idea.target1:>7.2f} T2 {idea.target2:>7.2f} T3 {idea.target3:>7.2f} "
+                f"T1 {idea.target1:>7.2f} T2 {idea.target2:>7.2f}"
+                f"{f' T3 {idea.target3:>7.2f}' if idea.n_targets >= 3 else ''} "
                 f"sl {idea.stoploss:>7.2f} | score {idea.score}\n"
                 f"{'':14s} why: {idea.rationale}"
             )
@@ -416,7 +417,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         return (
             f"✅ <b>Tracking {symbol} {expiry} {fmt_strike(strike)} {option_type}</b>\n"
             f"Entry ₹{pos.entry:.2f} | {pos.lots_total} lot(s) x {lot_size}\n"
-            f"SL ₹{pos.stoploss:.2f} | T1 ₹{pos.target1:.2f} T2 ₹{pos.target2:.2f} T3 ₹{pos.target3:.2f}\n"
+            f"SL ₹{pos.stoploss:.2f} | T1 ₹{pos.target1:.2f} T2 ₹{pos.target2:.2f}"
+            f"{f' T3 ₹{pos.target3:.2f}' if pos.n_targets >= 3 else ''}\n"
             f"I'll alert you on T1 / exits. No new {symbol} alerts today (unless a score of {config.REALERT_MIN_SCORE:.0f}+)."
         )
 
@@ -541,6 +543,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         worker.start()
         while worker.is_alive():
             worker.join(timeout=config.STATUS_POLL_INTERVAL_SECONDS)
+            if session_end and worker.is_alive() and dt.datetime.now().strftime("%H:%M") >= session_end:
+                return None   # session over while a scan is still running: stop waiting, end the session now
             if worker.is_alive() and config.TELEGRAM_ENABLED:
                 telegram_offset = poll_status_requests(telegram_offset, telegram_commands)
         if "error" in box:
@@ -636,6 +640,9 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                                             for p in account.open_positions if p.status != "CLOSED"}
             scan_started = time.time()
             snapshots = _fetch_while_polling()
+            if snapshots is None:
+                _end_session()
+                break
             scan_secs = time.time() - scan_started
             state["scan_secs"].append(scan_secs)
             print(f"[monitor] scan took {scan_secs:.0f}s ({len(snapshots)} symbols)")
@@ -781,7 +788,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                     print(
                         f"  {idea.symbol:12s} {idea.option_type} {fmt_strike(idea.strike):>8s} "
                         f"entry {idea.entry:>7.2f} T1 {idea.target1:>7.2f} T2 {idea.target2:>7.2f} "
-                        f"T3 {idea.target3:>7.2f} sl {idea.stoploss:>7.2f} | score {idea.score}"
+                        f"{f'T3 {idea.target3:>7.2f} ' if idea.n_targets >= 3 else ''}sl {idea.stoploss:>7.2f} | score {idea.score}"
                     )
                     state["day_log"]["signals"].append({
                         "time": now.strftime("%H:%M"), "symbol": idea.symbol,

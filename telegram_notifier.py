@@ -66,7 +66,7 @@ def format_signal_message(idea) -> str:
         f"⏰ {_now_str()}\n\n"
         f"\U0001F3AF Target 1: ₹{idea.target1:.2f}\n"
         f"\U0001F3AF Target 2: ₹{idea.target2:.2f}\n"
-        f"\U0001F3AF Target 3: ₹{idea.target3:.2f}\n"
+        f"{f'\U0001F3AF Target 3: ₹{idea.target3:.2f}' + chr(10) if getattr(idea, 'n_targets', 3) >= 3 else ''}"
         f"\U0001F6D1 Stoploss: ₹{idea.stoploss:.2f}\n\n"
         f"\U0001F4E6 Lot size {idea.lot_size} | 1 lot costs ₹{idea.entry * idea.lot_size:,.0f} | "
         f"max loss at SL ≈ ₹{(idea.entry - idea.stoploss) * idea.lot_size:,.0f} per lot\n\n"
@@ -139,8 +139,10 @@ def format_exit_message(position, level: str, lots: int, price: float) -> str:
                 f"Net for the trade: {_money(total)}")
 
     # ---- a target was hit ----
-    if level == "T3" or remaining <= 0:
-        title = "\U0001F3C1 <b>All targets hit</b>" if level == "T3" else f"\U0001F3AF <b>Target {level[1]} hit</b>"
+    last_level = f"T{getattr(position, 'n_targets', 3)}"
+    if level == last_level or remaining <= 0:
+        title = ("\U0001F3C1 <b>All targets hit</b>" if level == last_level
+                 else f"\U0001F3AF <b>Target {level[1]} hit</b>")
         lines = [f"{title} - {contract} at ₹{price:.2f}",
                  f"Approx profit - {money(pnl)}" if pnl >= 0 else f"Approx loss - {money(abs(pnl))}"]
         if earlier != 0:
@@ -152,7 +154,7 @@ def format_exit_message(position, level: str, lots: int, price: float) -> str:
              f"Approx profit - {money(pnl)}" if pnl >= 0 else f"Approx loss - {money(abs(pnl))}"]
     if level == "T1" and config.MOVE_SL_TO_COST_AFTER_T1:
         lines.append(f"<b>Move remaining quantity to C2C price - ₹{position.entry:.2f}</b>")
-    elif level == "T2" and config.TRAIL_SL_TO_T1_AFTER_T2:
+    elif level == "T2" and getattr(position, "n_targets", 3) >= 3 and config.TRAIL_SL_TO_T1_AFTER_T2:
         lines.append(f"<b>Move remaining quantity to Target 1 price - ₹{position.target1:.2f}</b>")
     if earlier != 0:
         lines.append(f"Total booked so far - {_money(total)}")
@@ -218,7 +220,7 @@ def format_plan_check(positions: list, live_price) -> str:
     a_pnl, b_pnl = ar - ai, br - bi
     return (
         f"\U0001F4CA <b>Plan comparison</b> ({len(positions)} trades, {reached} reached T1; before charges)\n"
-        f"A) 3 lots, 1 sold at each target:\n"
+        f"A) full plan (index 3 lots, stock 2 lots; 1 sold at each target):\n"
         f"   invested ₹{ai:,.0f} → returned ₹{ar:,.0f} = <b>{_money(round(a_pnl, 2))}</b>\n"
         f"B) 1 lot, sold at T1:\n"
         f"   invested ₹{bi:,.0f} → returned ₹{br:,.0f} = <b>{_money(round(b_pnl, 2))}</b>\n"
@@ -261,7 +263,7 @@ def format_trade_ledger(positions: list, live_price) -> str:
                      f"   ₹{c:,.0f} → ₹{r:,.0f} · <b>{_money(pnl)}</b>")
     lines.append(
         f"\n━━━━━━━━━━━━━━\n"
-        f"\U0001F4C5 <b>DAY TOTAL</b> - 3-lot plan (before brokerage and taxes)\n"
+        f"\U0001F4C5 <b>DAY TOTAL</b> - full plan (before brokerage and taxes)\n"
         f"Capital invested: ₹{inv:,.0f}\n"
         f"Amount returned: ₹{ret:,.0f}\n"
         f"<b>Profit/Loss: {_money(round(ret - inv, 2))}</b>  ({wins} profit, {losses} loss)")
@@ -303,14 +305,15 @@ def format_trades_summary(positions: list, live_price) -> str:
         nets.append(net)
 
         done = levels_reached(p)
-        nxt = next((lv for lv in ("T1", "T2", "T3") if lv not in done), None)
+        all_levels = ("T1", "T2", "T3")[:getattr(p, "n_targets", 3)]
+        nxt = next((lv for lv in all_levels if lv not in done), None)
         targets = {"T1": p.target1, "T2": p.target2, "T3": p.target3}
         if nxt is None:
             status = "all targets reached"
         elif not done:
             status = f"⏳ waiting for T1 (₹{p.target1:.2f})"
         else:
-            status = (f"\U0001F3AF {'/'.join(lv for lv in ('T1', 'T2', 'T3') if lv in done)} reached"
+            status = (f"\U0001F3AF {'/'.join(lv for lv in all_levels if lv in done)} reached"
                       f" - waiting for {nxt} (₹{targets[nxt]:.2f})")
         sl_note = " (at cost)" if p.stoploss >= p.entry else ""
         flag = " ⚠️oversize" if p.oversize else ""

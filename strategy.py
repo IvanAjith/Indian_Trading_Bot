@@ -34,6 +34,7 @@ class TradeIdea:
     rationale: str
     reasons: list         # explicit technical triggers (breakout, OI, etc.)
     lot_size: int = 1               # units per lot, from the option contract
+    n_targets: int = 3              # 3 for indexes, 2 for stocks (target3 is unused when 2)
     win_probability: float = 0.0   # heuristic estimate, see estimate_win_probability()
 
     @property
@@ -65,6 +66,18 @@ def estimate_win_probability(score: float) -> float:
     return round(lo_prob + frac * (hi_prob - lo_prob), 1)
 
 
+def is_index(symbol: str) -> bool:
+    return symbol.upper() in {s.upper() for s in config.INDEX_UNIVERSE}
+
+
+def plan_for(symbol: str):
+    """(lots, number of targets) for a trade on this underlying: indexes 3 lots / 3 targets,
+    stocks 2 lots / 2 targets (see config.py). lots is None when sizing by the risk rule."""
+    if is_index(symbol):
+        return config.LOTS_PER_TRADE_INDEX, int(config.TARGETS_INDEX)
+    return config.LOTS_PER_TRADE_STOCK, int(config.TARGETS_STOCK)
+
+
 def _pick_strike(snapshot: UnderlyingSnapshot, option_type: str) -> OptionQuote | None:
     candidates = [q for q in snapshot.option_chain if q.option_type == option_type]
     if not candidates:
@@ -91,7 +104,8 @@ def build_trade_idea(snapshot: UnderlyingSnapshot, screen_result: ScreenResult) 
     entry = leg.ltp
     target1 = round(entry * (1 + config.TARGET_PCT_T1 / 100), 2)
     target2 = round(entry * (1 + config.TARGET_PCT_T2 / 100), 2)
-    target3 = round(entry * (1 + config.TARGET_PCT_T3 / 100), 2)
+    n_targets = plan_for(snapshot.symbol)[1]
+    target3 = round(entry * (1 + config.TARGET_PCT_T3 / 100), 2) if n_targets >= 3 else 0.0
     stoploss = round(entry * (1 - config.STOPLOSS_PCT / 100), 2)
 
     reasons = screen_result.trigger_reasons or [
@@ -118,6 +132,7 @@ def build_trade_idea(snapshot: UnderlyingSnapshot, screen_result: ScreenResult) 
         reasons=reasons,
         win_probability=estimate_win_probability(screen_result.score),
         lot_size=max(int(leg.lot_size or 1), 1),
+        n_targets=n_targets,
     )
 
 

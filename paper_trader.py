@@ -18,7 +18,7 @@ import datetime as dt
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
-from strategy import TradeIdea, position_size
+from strategy import TradeIdea, position_size, plan_for
 import config
 
 
@@ -70,6 +70,7 @@ class PaperPosition:
     win_probability: float = 0.0
     reasons: list = field(default_factory=list)
     lot_size: int = 1
+    n_targets: int = 3           # 3 for indexes, 2 for stocks
     oversize: bool = False       # tracked as 1 lot although it breaks the max-loss rule
     t1_price: float = 0.0        # price seen when Target 1 was first reached (for the "sell all at T1" comparison)
     peak_price: float = 0.0      # highest premium seen while the trade was open (to show what was given back)
@@ -110,10 +111,14 @@ class PaperPosition:
         if not self.lots_by_level and self.lots_total == 1:
             # One lot cannot be split into partial exits - take it all at T2.
             self.lots_by_level = {"T1": 0, "T2": 1, "T3": 0}
+        if not self.lots_by_level and self.n_targets <= 2:
+            t1 = max(round(self.lots_total / 2), 1)       # two targets: about half at T1, the rest at T2
+            self.lots_by_level = {"T1": t1, "T2": self.lots_total - t1, "T3": 0}
         if not self.lots_by_level:
-            t1 = round(self.lots_total * config.TARGET_ALLOCATIONS[0])
-            t2 = round(self.lots_total * config.TARGET_ALLOCATIONS[1])
-            t3 = self.lots_total - t1 - t2  # remainder soaks up rounding
+            n = self.lots_total
+            t1 = round(n / 3)
+            t2 = round(n / 3)
+            t3 = n - t1 - t2  # remainder soaks up rounding
             self.lots_by_level = {"T1": t1, "T2": t2, "T3": t3}
         if self.lots_remaining == 0:
             self.lots_remaining = self.lots_total
@@ -195,8 +200,9 @@ class PaperTradingAccount:
 
     def open_trade(self, idea: TradeIdea, lots: int = None) -> PaperPosition:
         oversize = False
-        if lots is None and config.LOTS_PER_TRADE:
-            lots = int(config.LOTS_PER_TRADE)
+        planned_lots = plan_for(idea.symbol)[0]
+        if lots is None and planned_lots:
+            lots = int(planned_lots)
             # informational flag: the planned size risks more than the max-loss rule allows
             risk = idea.entry * (config.STOPLOSS_PCT / 100) * idea.lot_size * lots
             oversize = risk > self.capital * config.MAX_CAPITAL_PER_TRADE_PCT / 100
@@ -230,6 +236,7 @@ class PaperTradingAccount:
             win_probability=idea.win_probability,
             reasons=list(idea.reasons) if idea.reasons else [],
             lot_size=idea.lot_size,
+            n_targets=idea.n_targets,
             oversize=oversize,
         )
         self.open_positions.append(pos)
@@ -240,15 +247,16 @@ class PaperTradingAccount:
         """Register a trade you took yourself. Uses YOUR entry price as-is (no extra slippage), the
         usual stoploss/targets from config, and tracks it like any other paper trade."""
         if lots is None:
-            lots = int(config.LOTS_PER_TRADE) if config.LOTS_PER_TRADE else max(position_size(self.capital, entry, lot_size), 1)
+            planned_lots = plan_for(symbol)[0]
+            lots = int(planned_lots) if planned_lots else max(position_size(self.capital, entry, lot_size), 1)
         pos = PaperPosition(
             symbol=symbol, option_type=option_type, strike=strike, expiry=expiry, entry=round(entry, 2),
             target1=round(entry * (1 + config.TARGET_PCT_T1 / 100), 2),
             target2=round(entry * (1 + config.TARGET_PCT_T2 / 100), 2),
-            target3=round(entry * (1 + config.TARGET_PCT_T3 / 100), 2),
+            target3=round(entry * (1 + config.TARGET_PCT_T3 / 100), 2) if plan_for(symbol)[1] >= 3 else 0.0,
             stoploss=round(entry * (1 - config.STOPLOSS_PCT / 100), 2),
             lots_total=lots, opened_at=dt.datetime.now().isoformat(timespec="seconds"),
-            reasons=["manual entry (added via /add)"], lot_size=lot_size,
+            reasons=["manual entry (added via /add)"], lot_size=lot_size, n_targets=plan_for(symbol)[1],
         )
         self.open_positions.append(pos)
         return pos
@@ -286,7 +294,8 @@ class PaperTradingAccount:
                     except Exception as exc:
                         print(f"[paper_trader] on_t1 callback failed (not fatal): {exc}")
 
-            for level, target_price in (("T1", pos.target1), ("T2", pos.target2), ("T3", pos.target3)):
+            levels = (("T1", pos.target1), ("T2", pos.target2), ("T3", pos.target3))[:pos.n_targets]
+            for level, target_price in levels:
                 if level in pos.booked_levels:
                     continue
                 if current_ltp >= target_price:
@@ -294,7 +303,7 @@ class PaperTradingAccount:
                     if lots_here > 0:
                         self._fill(pos, level, lots_here, current_ltp)
                         pos.booked_levels.add(level)
-                        if level == "T2" and config.TRAIL_SL_TO_T1_AFTER_T2:
+                        if level == "T2" and pos.n_targets >= 3 and config.TRAIL_SL_TO_T1_AFTER_T2:
                             pos.stoploss = max(pos.stoploss, pos.target1)   # trail the stop up to Target 1
 
             if force_exit and pos.lots_remaining > 0 and not pos.held_over:
