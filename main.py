@@ -463,7 +463,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             send_telegram_message(format_exit_message(pos, level, lots, price))
 
     def _on_t1(pos, price):
-        if config.TELEGRAM_ENABLED:
+        # When a lot is sold at T1, the exit message ("Target 1 hit ...") already carries the instructions.
+        if config.TELEGRAM_ENABLED and pos.lots_by_level.get("T1", 0) <= 0:
             send_telegram_message(format_t1_message(pos, price))
 
     account = PaperTradingAccount(on_fill=_on_fill, on_t1=_on_t1) if use_paper else None
