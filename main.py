@@ -314,14 +314,16 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         account.manual_close(pos, price)
         return f"\U0001F44B Recorded {symbol} closed at ₹{price:.2f}. Freed up for new trades."
 
-    def _active_block_reason(symbol: str, option_type: str):
-        """Why a NEW alert for this underlying+direction must be suppressed, or None.
-        'open'    -> a trade in the same direction is still running (target/SL not finished)
-        'cooldown'-> one closed less than REENTRY_COOLDOWN_MIN minutes ago"""
+    def _active_block_reason(symbol: str, option_type: str = None):
+        """Why a NEW alert for this underlying must be suppressed, or None. Direction does NOT
+        matter: while a CE *or* PE trade on this stock/index is still running you get no further
+        alert (no panic-reversals); you wait for that trade's target or stoploss.
+        'open'     -> a trade on this underlying is still running
+        'cooldown' -> one closed less than REENTRY_COOLDOWN_MIN minutes ago"""
         if not account or not config.ONE_ACTIVE_PER_UNDERLYING:
             return None
         for p in account.open_positions:
-            if p.symbol != symbol or p.option_type != option_type:
+            if p.symbol != symbol:
                 continue
             if p.status != "CLOSED":
                 return "open"
@@ -333,14 +335,6 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 if dt.datetime.now() - last < dt.timedelta(minutes=config.REENTRY_COOLDOWN_MIN):
                     return "cooldown"
         return None
-
-    def _opposite_open(symbol: str, option_type: str):
-        """Option type of a still-open trade in the OPPOSITE direction on this underlying, or None."""
-        if not account:
-            return None
-        other = "PE" if option_type == "CE" else "CE"
-        return other if any(p.symbol == symbol and p.option_type == other and p.status != "CLOSED"
-                            for p in account.open_positions) else None
 
     def _live_price(pos):
         snap = state["last_snap_by_symbol"].get(pos.symbol)
@@ -652,9 +646,6 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 key = (idea.symbol, idea.option_type, idea.strike, idea.expiry, today.isoformat())
                 if key in state["alerted_today"]:
                     continue
-                opposite = _opposite_open(idea.symbol, idea.option_type)
-                if opposite:
-                    idea.reasons.insert(0, f"\U0001F501 REVERSAL: your open {idea.symbol} {opposite} is the opposite direction")
                 state["alerted_today"].add(key)
                 state["signaled_directions_today"].add((idea.symbol, idea.bias))
                 new_ideas.append(idea)
