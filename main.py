@@ -198,6 +198,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         "day_log": _fresh_day_log(), "watchlisted_today": set(),
         "eod_warned_today": set(), "last_snap_by_symbol": {},
         "scans": 0, "symbols_scanned": 0, "scan_secs": [], "suppressed_logged": set(),
+        "alerts_total_today": 0, "daily_cap_hit": False, "skipped_budget": {},
         "alerts_by_symbol": {s.strip().upper(): 1 for s in (already_alerted or []) if s.strip()}, "closed_checked": not skip_if_closed,
         "watchlist_score_history": {},  # {(symbol, bias): last-seen score} -
                                         # used to only alert when a setup is
@@ -259,6 +260,15 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 f"  • {s['time']} {s['symbol']} {s['option_type']} {fmt_strike(s['strike'])} "
                 f"@ ₹{s['entry']:.2f} (score {s['score']:.0f}, ~{s['win_probability']:.0f}% est.)"
             )
+        limit_bits = []
+        if config.MAX_ALERTS_PER_DAY:
+            limit_bits.append(f"limit {config.MAX_ALERTS_PER_DAY} a day{' - reached' if state['daily_cap_hit'] else ''}")
+        if state["skipped_budget"]:
+            names = ", ".join(f"{k} (₹{v:,})" for k, v in sorted(state["skipped_budget"].items(), key=lambda kv: kv[1]))
+            lines.append(f"⛔ Skipped as over budget (more than ₹{config.MAX_COST_PER_LOT:,} for 1 lot): "
+                         f"{len(state['skipped_budget'])} - {names}")
+        if limit_bits:
+            lines.append(f"<i>({'; '.join(limit_bits)})</i>")
 
         if account and account.open_positions:
             lines.append("")
@@ -353,6 +363,9 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 and count - 1 < config.REALERT_MAX_PER_DAY):
             return None
         return "already alerted today"
+
+    def _over_budget(entry: float, lot_size: int) -> bool:
+        return bool(config.MAX_COST_PER_LOT) and entry * lot_size > config.MAX_COST_PER_LOT
 
     def _live_price(pos):
         snap = state["last_snap_by_symbol"].get(pos.symbol)
@@ -574,6 +587,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 state["signaled_directions_today"] = set()
                 state["suppressed_logged"] = set()
                 state["alerts_by_symbol"] = {}
+                state["alerts_total_today"], state["daily_cap_hit"], state["skipped_budget"] = 0, False, {}
                 state["day_log"] = _fresh_day_log()
                 if account:
                     # Holding is a same-day-only override - each new day starts
@@ -671,6 +685,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             #      per stock per day, not one per cycle.
             score_history = state["watchlist_score_history"]
             watch_candidates = []
+            cand_legs = {}
             for r in watchlist_candidates(snapshots):
                 direction_key = (r.symbol, r.bias)
                 previous_score = score_history.get(direction_key)
@@ -679,6 +694,16 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                     continue  # this stock/index already alerted today - no heads-up
                 if previous_score is None or r.score <= previous_score:
                     continue  # flat, weakening, or no baseline yet - not worth alerting
+                if state["daily_cap_hit"]:
+                    continue  # today's entry-alert limit is used up - a heads-up would lead nowhere
+                snap_c = snap_by_symbol.get(r.symbol)
+                try:
+                    leg_c = _pick_strike(snap_c, "CE" if r.bias == "BULLISH" else "PE") if snap_c else None
+                except Exception:
+                    leg_c = None
+                if leg_c is not None and _over_budget(leg_c.ltp, leg_c.lot_size):
+                    continue  # contract is over the per-lot budget - not interesting for this account
+                cand_legs[r.symbol] = leg_c
                 key = (r.symbol, r.bias, today.isoformat())
                 if key in state["watchlisted_today"] or (r.symbol, r.bias) in state["signaled_directions_today"]:
                     continue  # already watchlist-alerted (or fully signaled) today
@@ -700,12 +725,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 watch_legs = {}
                 for r in new_watch_results:
                     print(f"  \U0001F440 {r.symbol:12s} {r.bias:8s} score {r.score}")
-                    snap_w = snap_by_symbol.get(r.symbol)
-                    try:
-                        watch_legs[r.symbol] = (_pick_strike(snap_w, "CE" if r.bias == "BULLISH" else "PE")
-                                                if snap_w else None)
-                    except Exception:
-                        watch_legs[r.symbol] = None
+                    watch_legs[r.symbol] = cand_legs.get(r.symbol)
                     leg_w = watch_legs[r.symbol]
                     state["day_log"]["watchlist"].append({
                         "time": now.strftime("%H:%M"), "symbol": r.symbol,
@@ -718,7 +738,9 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
 
             new_ideas = []
             for r in ranked:
-                if len(new_ideas) >= config.TOP_N_SIGNALS_PER_DAY:
+                if len(new_ideas) >= config.MAX_ALERTS_PER_SCAN:
+                    break
+                if config.MAX_ALERTS_PER_DAY and state["alerts_total_today"] + len(new_ideas) >= config.MAX_ALERTS_PER_DAY:
                     break
                 option_type = "CE" if r.bias == "BULLISH" else "PE"
                 blocked = _alert_block_reason(r.symbol, r.score)
@@ -732,6 +754,10 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 idea = build_trade_idea(snap_by_symbol[r.symbol], r)
                 if not idea:
                     continue
+                if _over_budget(idea.entry, idea.lot_size):
+                    # too expensive for the account: no alert, but remember it for the daily summary
+                    state["skipped_budget"][idea.symbol] = round(idea.entry * idea.lot_size)
+                    continue
                 key = (idea.symbol, idea.option_type, idea.strike, idea.expiry, today.isoformat())
                 if key in state["alerted_today"]:
                     continue
@@ -740,6 +766,14 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 state["signaled_directions_today"].add((idea.symbol, idea.bias))
                 new_ideas.append(idea)
             state["last_signal_count"] = len(new_ideas)
+            state["alerts_total_today"] += len(new_ideas)
+            if (config.MAX_ALERTS_PER_DAY and not state["daily_cap_hit"]
+                    and state["alerts_total_today"] >= config.MAX_ALERTS_PER_DAY):
+                state["daily_cap_hit"] = True
+                print(f"[monitor] {now:%H:%M} - daily alert limit ({config.MAX_ALERTS_PER_DAY}) reached.")
+                if config.TELEGRAM_ENABLED and new_ideas:
+                    # sent after this scan's alerts (see below) so it appears last
+                    state["announce_cap"] = True
 
             if new_ideas:
                 print(f"\n[monitor] {now:%H:%M} - {len(new_ideas)} NEW signal(s):")
@@ -758,6 +792,10 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 sent = notify_new_signals(new_ideas)
                 if config.TELEGRAM_ENABLED:
                     print(f"[telegram] sent {sent}/{len(new_ideas)} alert(s).")
+                if state.pop("announce_cap", False):
+                    send_telegram_message(
+                        f"\U0001F512 Daily limit of {config.MAX_ALERTS_PER_DAY} entry alerts reached - no more entry "
+                        f"alerts today. I keep tracking your open trades.")
 
                 if account:
                     open_count = len([p for p in account.open_positions if p.status != "CLOSED"])

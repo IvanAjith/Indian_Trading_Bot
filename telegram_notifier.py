@@ -181,6 +181,26 @@ def _money(x: float) -> str:
 money = _money
 
 
+def _peak_capital(positions: list, per_trade_capital) -> float:
+    """Largest amount of money tied up in open trades at the same moment (sweep over open/close times)."""
+    import datetime as _dt
+    events = []
+    for p in positions:
+        try:
+            start = _dt.datetime.fromisoformat(p.opened_at)
+            end = (_dt.datetime.fromisoformat(p.fills[-1].at)
+                   if p.status == "CLOSED" and p.fills else _dt.datetime.now())
+        except (ValueError, AttributeError):
+            continue
+        cap = per_trade_capital(p)
+        events += [(start, cap), (end, -cap)]
+    peak = cur = 0.0
+    for _, delta in sorted(events, key=lambda e: (e[0], e[1])):   # closes before opens at the same instant
+        cur += delta
+        peak = max(peak, cur)
+    return peak
+
+
 def format_plan_check(positions: list, live_price) -> str:
     """The same trades played two ways, with the money side:
     A) 3 lots, scale-out (1 lot sold at each target) - what the bot follows
@@ -201,7 +221,9 @@ def format_plan_check(positions: list, live_price) -> str:
         f"A) 3 lots, 1 sold at each target:\n"
         f"   invested ₹{ai:,.0f} → returned ₹{ar:,.0f} = <b>{_money(round(a_pnl, 2))}</b>\n"
         f"B) 1 lot, sold at T1:\n"
-        f"   invested ₹{bi:,.0f} → returned ₹{br:,.0f} = <b>{_money(round(b_pnl, 2))}</b>"
+        f"   invested ₹{bi:,.0f} → returned ₹{br:,.0f} = <b>{_money(round(b_pnl, 2))}</b>\n"
+        f"\U0001F4B5 Peak capital in use at one time: A ₹{_peak_capital(positions, lambda p: p.entry * p.lot_size * p.lots_total):,.0f}"
+        f" | B ₹{_peak_capital(positions, lambda p: p.entry * p.lot_size):,.0f}"
     )
 
 

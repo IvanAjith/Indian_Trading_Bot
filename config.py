@@ -61,7 +61,12 @@ RSI_BEARISH_MAX = 45
 MIN_OI_CHANGE_PCT = 8.0          # % OI change to count as "buildup"
 IV_PERCENTILE_LOOKBACK_DAYS = 252
 
-TOP_N_SIGNALS_PER_DAY = 5        # cap how many trade ideas the bot surfaces
+TOP_N_SIGNALS_PER_DAY = 5        # (legacy default for rank_universe; the real limits are the three settings below)
+MAX_ALERTS_PER_SCAN = 2          # at most this many NEW entry alerts per scan (best score first)
+MAX_ALERTS_PER_DAY = 6           # at most this many entry alerts in a whole day (None = unlimited)
+MAX_COST_PER_LOT = 35000         # skip signals whose contract costs more than this for ONE lot
+                                 # (premium x lot size). Matches a small account: Rs1 lakh = ~3 such trades.
+                                 # None = no budget filter. Skipped signals are counted in the daily summary.
 MIN_SIGNAL_SCORE = 70.0          # quality floor - below this, don't surface it
                                   # at all rather than filling out the count.
                                   # Some days will genuinely have 0-2 signals.
