@@ -1,0 +1,48 @@
+name: Weekly trade review
+
+# Fridays 17:00 IST (11:30 UTC): reads the whole trade journal, writes the weekly report and sends a short
+# digest to Telegram. It only RECOMMENDS rule changes - nothing changes by itself.
+on:
+  schedule:
+    - cron: "30 11 * * 5"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "How many calendar days the 'this period' section covers"
+        default: "7"
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      TZ: Asia/Kolkata
+      TB_TELEGRAM_TOKEN: ${{ secrets.TB_TELEGRAM_TOKEN }}
+      TB_TELEGRAM_CHAT_ID: ${{ secrets.TB_TELEGRAM_CHAT_ID }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests
+      - name: Get the journal
+        shell: bash
+        run: |
+          git clone --quiet --depth 1 --branch journal-data "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/jdata
+          mkdir -p /tmp/jdata/journal
+      - name: Run the review
+        run: python weekly_review.py --journal-dir /tmp/jdata/journal --days "${{ github.event.inputs.days || '7' }}"
+      - name: Save the report
+        continue-on-error: true
+        shell: bash
+        run: |
+          git config --global user.name "trading-bot"
+          git config --global user.email "trading-bot@users.noreply.github.com"
+          cd /tmp/jdata
+          git add -A
+          git diff --cached --quiet && { echo "Nothing new to commit."; exit 0; }
+          git commit -q -m "Weekly review $(date +%F)"
+          git push -q origin journal-data

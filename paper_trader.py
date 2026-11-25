@@ -72,6 +72,9 @@ class PaperPosition:
     lot_size: int = 1
     n_targets: int = 3           # 3 for indexes, 2 for stocks
     oversize: bool = False       # tracked as 1 lot although it breaks the max-loss rule
+    context: dict = field(default_factory=dict)   # market context at entry (journal)
+    trough_price: float = 0.0    # lowest premium seen while open
+    t1_at: str = ""              # when Target 1 was first reached
     t1_price: float = 0.0        # price seen when Target 1 was first reached (for the "sell all at T1" comparison)
     peak_price: float = 0.0      # highest premium seen while the trade was open (to show what was given back)
     t1_alerted: bool = False    # True once the "Target 1 reached" alert has been sent
@@ -237,6 +240,7 @@ class PaperTradingAccount:
             reasons=list(idea.reasons) if idea.reasons else [],
             lot_size=idea.lot_size,
             n_targets=idea.n_targets,
+            context=dict(getattr(idea, "context", {}) or {}),
             oversize=oversize,
         )
         self.open_positions.append(pos)
@@ -257,6 +261,7 @@ class PaperTradingAccount:
             stoploss=round(entry * (1 - config.STOPLOSS_PCT / 100), 2),
             lots_total=lots, opened_at=dt.datetime.now().isoformat(timespec="seconds"),
             reasons=["manual entry (added via /add)"], lot_size=lot_size, n_targets=plan_for(symbol)[1],
+            context={"manual": True},
         )
         self.open_positions.append(pos)
         return pos
@@ -275,6 +280,7 @@ class PaperTradingAccount:
                 continue
 
             pos.peak_price = max(pos.peak_price, current_ltp)
+            pos.trough_price = current_ltp if pos.trough_price <= 0 else min(pos.trough_price, current_ltp)
 
             # Full stoploss on the remaining quantity takes priority.
             if current_ltp <= pos.stoploss:
@@ -286,6 +292,7 @@ class PaperTradingAccount:
             if not pos.t1_alerted and current_ltp >= pos.target1:
                 pos.t1_alerted = True
                 pos.t1_price = current_ltp
+                pos.t1_at = dt.datetime.now().isoformat(timespec="seconds")
                 if config.MOVE_SL_TO_COST_AFTER_T1:
                     pos.stoploss = max(pos.stoploss, pos.entry)
                 if self.on_t1:
@@ -354,6 +361,11 @@ class PaperTradingAccount:
         pos.status = "CLOSED" if pos.lots_remaining <= 0 else "PARTIAL"
         if pos.status == "CLOSED":
             self._append_result(pos)
+            try:
+                import journal
+                journal.record_trade(pos)
+            except Exception as exc:
+                print(f"[paper_trader] journal entry failed (not fatal): {exc}")
 
         if self.on_fill:
             try:

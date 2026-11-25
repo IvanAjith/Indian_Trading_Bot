@@ -41,3 +41,6 @@ backtest_report.html
 
 trade_results.csv
 trade_results.csv.*.bak
+
+# local journal output (the real journal lives on the journal-data branch)
+journal/

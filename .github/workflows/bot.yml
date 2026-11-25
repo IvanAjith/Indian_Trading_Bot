@@ -30,6 +30,8 @@ concurrency:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # lets the run save the trade journal to the journal-data branch
     # Backstop only - the bot ends itself at SESSION_END (default 15:12 = full market day,
     # fine for a public repo). For a PRIVATE repo set repo variables SESSION_END=10:30 and
     # JOB_TIMEOUT_MIN=100 to stay inside the 2,000 free minutes/month.
@@ -79,8 +81,27 @@ jobs:
             monitor.log
             paper_trades.csv
             trade_results.csv
+            journal/
           if-no-files-found: ignore
           retention-days: 90
+      - name: Save the trade journal to the journal-data branch
+        if: always() && steps.guard.outputs.go == 'true'
+        continue-on-error: true   # a journal problem must never fail the day's run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -d journal ]; then echo "No trades were closed - no journal to save."; exit 0; fi
+          git config --global user.name "trading-bot"
+          git config --global user.email "trading-bot@users.noreply.github.com"
+          rm -rf /tmp/jdata
+          git clone --quiet --depth 1 --branch journal-data "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/jdata
+          python save_journal.py journal /tmp/jdata/journal
+          cd /tmp/jdata
+          git add -A
+          git diff --cached --quiet && { echo "Nothing new to commit."; exit 0; }
+          git commit -q -m "Journal $(date +%F) run ${GITHUB_RUN_ID}"
+          git push -q origin journal-data
       - name: Tell me on Telegram if the run failed
         if: failure() && steps.guard.outputs.go == 'true'
         run: |

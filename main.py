@@ -199,7 +199,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         "day_log": _fresh_day_log(), "watchlisted_today": set(),
         "eod_warned_today": set(), "last_snap_by_symbol": {},
         "scans": 0, "symbols_scanned": 0, "scan_secs": [], "suppressed_logged": set(),
-        "alerts_total_today": 0, "daily_cap_hit": False, "skipped_budget": {},
+        "normal_total_today": 0, "strong_total_today": 0, "daily_cap_hit": False, "skipped_budget": {},
         "alerts_by_symbol": {s.strip().upper(): 1 for s in (already_alerted or []) if s.strip()}, "closed_checked": not skip_if_closed,
         "watchlist_score_history": {},  # {(symbol, bias): last-seen score} -
                                         # used to only alert when a setup is
@@ -263,7 +263,9 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             )
         limit_bits = []
         if config.MAX_ALERTS_PER_DAY:
-            limit_bits.append(f"limit {config.MAX_ALERTS_PER_DAY} a day{' - reached' if state['daily_cap_hit'] else ''}")
+            limit_bits.append(f"normal alerts: {state['normal_total_today']} of {config.MAX_ALERTS_PER_DAY} a day"
+                              f"{' - reached' if state['daily_cap_hit'] else ''}; strong (score {config.STRONG_SCORE:.0f}+) "
+                              f"never blocked: {state['strong_total_today']} sent")
         if state["skipped_budget"]:
             names = ", ".join(f"{k} (₹{v:,})" for k, v in sorted(state["skipped_budget"].items(), key=lambda kv: kv[1]))
             lines.append(f"⛔ Skipped as over budget (more than ₹{config.MAX_COST_PER_LOT:,} for 1 lot): "
@@ -276,6 +278,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             lines.append(format_trade_ledger(account.open_positions, _live_price))
             lines.append("")
             lines.append(format_plan_check(account.open_positions, _live_price))
+            lines.append("\n\U0001F4D3 Trade journal (why each trade was taken, how it played out, lesson): "
+                         "journal/ on the journal-data branch.")
         elif fills:
             total_pnl = round(sum(f["pnl"] for f in fills), 2)
             lines.append(f"\n\U0001F51A Exits/fills: {len(fills)}")
@@ -591,7 +595,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 state["signaled_directions_today"] = set()
                 state["suppressed_logged"] = set()
                 state["alerts_by_symbol"] = {}
-                state["alerts_total_today"], state["daily_cap_hit"], state["skipped_budget"] = 0, False, {}
+                state["normal_total_today"], state["strong_total_today"] = 0, 0
+                state["daily_cap_hit"], state["skipped_budget"] = False, {}
                 state["day_log"] = _fresh_day_log()
                 if account:
                     # Holding is a same-day-only override - each new day starts
@@ -744,11 +749,18 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                         send_telegram_message(format_watchlist_message(r, watch_legs.get(r.symbol)))
 
             new_ideas = []
-            for r in ranked:
-                if len(new_ideas) >= config.MAX_ALERTS_PER_SCAN:
-                    break
-                if config.MAX_ALERTS_PER_DAY and state["alerts_total_today"] + len(new_ideas) >= config.MAX_ALERTS_PER_DAY:
-                    break
+            n_normal = n_strong = 0
+            for r in ranked:                      # best score first
+                strong = r.score >= config.STRONG_SCORE
+                if strong:
+                    if n_strong >= config.MAX_STRONG_PER_SCAN:
+                        continue
+                else:
+                    if n_normal >= config.MAX_ALERTS_PER_SCAN:
+                        continue
+                    if (config.MAX_ALERTS_PER_DAY
+                            and state["normal_total_today"] + n_normal >= config.MAX_ALERTS_PER_DAY):
+                        continue                  # the daily limit applies to normal signals only
                 option_type = "CE" if r.bias == "BULLISH" else "PE"
                 blocked = _alert_block_reason(r.symbol, r.score)
                 if blocked:
@@ -768,16 +780,26 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 key = (idea.symbol, idea.option_type, idea.strike, idea.expiry, today.isoformat())
                 if key in state["alerted_today"]:
                     continue
+                idea.context["entry_clock"] = now.strftime("%H:%M")
+                nifty = snap_by_symbol.get("NIFTY")
+                if nifty is not None and getattr(nifty, "prev_close", 0):
+                    idea.context["nifty_chg_pct"] = round((nifty.spot / nifty.prev_close - 1) * 100, 2)
                 state["alerted_today"].add(key)
                 state["alerts_by_symbol"][idea.symbol] = state["alerts_by_symbol"].get(idea.symbol, 0) + 1
                 state["signaled_directions_today"].add((idea.symbol, idea.bias))
                 new_ideas.append(idea)
+                if strong:
+                    n_strong += 1
+                else:
+                    n_normal += 1
             state["last_signal_count"] = len(new_ideas)
-            state["alerts_total_today"] += len(new_ideas)
+            state["normal_total_today"] += n_normal
+            state["strong_total_today"] += n_strong
             if (config.MAX_ALERTS_PER_DAY and not state["daily_cap_hit"]
-                    and state["alerts_total_today"] >= config.MAX_ALERTS_PER_DAY):
+                    and state["normal_total_today"] >= config.MAX_ALERTS_PER_DAY):
                 state["daily_cap_hit"] = True
-                print(f"[monitor] {now:%H:%M} - daily alert limit ({config.MAX_ALERTS_PER_DAY}) reached.")
+                print(f"[monitor] {now:%H:%M} - daily limit of {config.MAX_ALERTS_PER_DAY} normal alerts reached; "
+                      f"only strong signals (score {config.STRONG_SCORE:.0f}+) will still be sent.")
                 if config.TELEGRAM_ENABLED and new_ideas:
                     # sent after this scan's alerts (see below) so it appears last
                     state["announce_cap"] = True
@@ -801,8 +823,9 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                     print(f"[telegram] sent {sent}/{len(new_ideas)} alert(s).")
                 if state.pop("announce_cap", False):
                     send_telegram_message(
-                        f"\U0001F512 Daily limit of {config.MAX_ALERTS_PER_DAY} entry alerts reached - no more entry "
-                        f"alerts today. I keep tracking your open trades.")
+                        f"\U0001F512 Daily limit of {config.MAX_ALERTS_PER_DAY} normal entry alerts reached. "
+                        f"From now on only STRONG signals (score {config.STRONG_SCORE:.0f}+) will still be sent. "
+                        f"I keep tracking your open trades.")
 
                 if account:
                     open_count = len([p for p in account.open_positions if p.status != "CLOSED"])

@@ -62,8 +62,11 @@ MIN_OI_CHANGE_PCT = 8.0          # % OI change to count as "buildup"
 IV_PERCENTILE_LOOKBACK_DAYS = 252
 
 TOP_N_SIGNALS_PER_DAY = 5        # (legacy default for rank_universe; the real limits are the three settings below)
-MAX_ALERTS_PER_SCAN = 2          # at most this many NEW entry alerts per scan (best score first)
-MAX_ALERTS_PER_DAY = 6           # at most this many entry alerts in a whole day (None = unlimited)
+MAX_ALERTS_PER_SCAN = 2          # at most this many NORMAL new entry alerts per scan (best score first)
+MAX_ALERTS_PER_DAY = 6           # at most this many NORMAL entry alerts in a whole day (None = unlimited)
+STRONG_SCORE = 80                # a signal scoring at least this is STRONG: it is never blocked by the daily
+                                 # limit above, so a very good signal late in the day is not missed
+MAX_STRONG_PER_SCAN = 2          # extra allowance per scan for strong signals (the opening burst stays bounded)
 MAX_COST_PER_LOT = 35000         # skip signals whose contract costs more than this for ONE lot
                                  # (premium x lot size). Matches a small account: Rs1 lakh = ~3 such trades.
                                  # None = no budget filter. Skipped signals are counted in the daily summary.
@@ -154,6 +157,7 @@ EOD_WARNING_MINUTES_BEFORE_CLOSE = 15
 # ---------------------------------------------------------------------------
 PAPER_STARTING_CAPITAL = 1000000.0   # 3 lots of an index option can cost ~Rs1.4 lakh each, so the paper account is Rs10 lakh
 PAPER_LOG_FILE = "paper_trades.csv"
+JOURNAL_DIR = "journal"                   # per-trade journal: daily markdown + trades.jsonl (see journal.py)
 PAPER_RESULTS_FILE = "trade_results.csv"   # one row per CLOSED trade: Plan A (3-lot scale-out) vs Plan B (1 lot sold at T1)
 MOVE_SL_TO_COST_AFTER_T1 = True   # once Target 1 is reached, move the stoploss up to the
                                   # entry price ("cost-to-cost") so the rest of the trade
