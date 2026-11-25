@@ -139,6 +139,7 @@ Other automatic messages: 👀 early heads-up · 🔚 exit (T2/T3/stoploss/time)
 | `/pnl` | Booked + open profit and loss, win rate, paper capital |
 | `/summary` | Today's heads-ups, signals, exits and P&L so far |
 | `/add SYMBOL STRIKE CE\|PE ENTRY [LOTS]` | Track a trade you took yourself, e.g. `/add NIFTY 25800 CE 249.87` (a rounded strike like 308 matches the real 307.5). Uses your entry price, the real lot size, the usual stoploss/targets, T1 alert and exits |
+| `/seen SYMBOL [SYMBOL ...]` | Mark stocks/indexes as already alerted today (used after a restart so the one-alert-per-day rule keeps holding) |
 | `/close SYMBOL [price]` | Record a position as closed (at the latest price, or yours) |
 
 ---
@@ -163,6 +164,12 @@ Other automatic messages: 👀 early heads-up · 🔚 exit (T2/T3/stoploss/time)
 3. **Holiday notice test:** Actions → **Market holiday notice** → Run workflow with `today` set to the day
    before a holiday (e.g. `2026-12-24`).
 4. Make sure no other copy of the bot is running anywhere with the same Telegram token.
+
+### Restarting in the middle of a day
+Cancel the running session first (the workflow runs one session at a time and a new one would just wait), then
+**Run workflow** and fill the **already_alerted** box with the stocks/indexes that already alerted today, e.g.
+`NIFTY,BANKNIFTY,ITC` - they stay quiet. Then re-register the trades you still hold with `/add`
+(`/seen SYMBOL` does the same as the box, from Telegram).
 
 ### Optional repo variables (Settings → Secrets and variables → Actions → Variables)
 
