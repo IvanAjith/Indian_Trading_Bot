@@ -239,7 +239,7 @@ reasons actually win. Review weekly; judge the rules on weeks of data, not one d
 Every closed trade becomes a row in `trade_results.csv` (columns `a_capital, a_returned, a_pnl, b_capital,
 b_returned, b_pnl, a_minus_b`). `/trades` and the 15:12 summary show the running **Plan comparison**, and the summary
 lists each trade (T1 ✅ → T2 ✅ → stoploss/square-off, invested → returned, P&L) with a **DAY TOTAL**: capital
-invested, amount returned, profit/loss - all before brokerage and taxes. Trades that never reached T1 behave the
+invested, amount returned, profit/loss and the **percentage return** - all before brokerage and taxes. Trades that never reached T1 behave the
 same in both plans (B is just the same trade with 1 lot).
 
 Optional visual backtest (approximate - uses daily candles and a fixed-delta premium model):

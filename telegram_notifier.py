@@ -163,6 +163,14 @@ def _money(x: float) -> str:
 money = _money
 
 
+def _pct(pnl: float, capital: float) -> str:
+    """Return on money invested, e.g. '+2.4%' (empty if nothing was invested)."""
+    if not capital:
+        return ""
+    v = pnl / capital * 100
+    return f"{'+' if v > 0 else ''}{v:.1f}%"
+
+
 def _peak_capital(positions: list, per_trade_capital) -> float:
     """Largest amount of money tied up in open trades at the same moment (sweep over open/close times)."""
     import datetime as _dt
@@ -201,9 +209,9 @@ def format_plan_check(positions: list, live_price) -> str:
     return (
         f"\U0001F4CA <b>Plan comparison</b> ({len(positions)} trades, {reached} reached T1; before charges)\n"
         f"A) full plan (index 3 lots, stock 2 lots; 1 sold at each target):\n"
-        f"   invested ₹{ai:,.0f} → returned ₹{ar:,.0f} = <b>{_money(round(a_pnl, 2))}</b>\n"
+        f"   invested ₹{ai:,.0f} → returned ₹{ar:,.0f} = <b>{_money(round(a_pnl, 2))}</b> ({_pct(a_pnl, ai)})\n"
         f"B) 1 lot, sold at T1:\n"
-        f"   invested ₹{bi:,.0f} → returned ₹{br:,.0f} = <b>{_money(round(b_pnl, 2))}</b>\n"
+        f"   invested ₹{bi:,.0f} → returned ₹{br:,.0f} = <b>{_money(round(b_pnl, 2))}</b> ({_pct(b_pnl, bi)})\n"
         f"\U0001F4B5 Peak capital in use at one time: A ₹{_peak_capital(positions, lambda p: p.entry * p.lot_size * p.lots_total):,.0f}"
         f" | B ₹{_peak_capital(positions, lambda p: p.entry * p.lot_size):,.0f}"
     )
@@ -240,13 +248,16 @@ def format_trade_ledger(positions: list, live_price) -> str:
         lines.append(f"{icon} <b>{p.symbol} {fmt_strike(p.strike)} {p.option_type}</b> · "
                      f"{p.lots_total} lot × {p.lot_size}\n"
                      f"   {' → '.join(steps)}\n"
-                     f"   ₹{c:,.0f} → ₹{r:,.0f} · <b>{_money(pnl)}</b>")
+                     f"   ₹{c:,.0f} → ₹{r:,.0f} · <b>{_money(pnl)}</b> ({_pct(pnl, c)})")
     lines.append(
         f"\n━━━━━━━━━━━━━━\n"
         f"\U0001F4C5 <b>DAY TOTAL</b> - full plan (before brokerage and taxes)\n"
         f"Capital invested: ₹{inv:,.0f}\n"
         f"Amount returned: ₹{ret:,.0f}\n"
-        f"<b>Profit/Loss: {_money(round(ret - inv, 2))}</b>  ({wins} profit, {losses} loss)")
+        f"<b>Profit/Loss: {_money(round(ret - inv, 2))}</b>  ({wins} profit, {losses} loss)\n"
+        f"Return on the money invested: <b>{_pct(ret - inv, inv)}</b>\n"
+        f"As % of your ₹{config.ACCOUNT_SIZE:,.0f} account: {_pct(ret - inv, config.ACCOUNT_SIZE)} "
+        f"<i>(only meaningful if you could have taken these trades - see peak capital)</i>")
     return "\n".join(lines)
 
 
