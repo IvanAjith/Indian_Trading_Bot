@@ -95,18 +95,35 @@ def format_exit_message(position, level: str, lots: int, price: float) -> str:
         return f"₹{abs(x):,.2f}"
 
     if level == "SL":
-        stop_kind = ""
-        if position.stoploss >= position.target1:
-            stop_kind = " (trailing stop at T1)"
-        elif position.stoploss >= position.entry:
-            stop_kind = " (stop was at cost)"
-        lines = [f"\U0001F6D1 <b>Stoploss Hit</b> - {contract}{stop_kind}"]
-        word = "profit" if per_lot >= 0 else "loss"
-        lines.append(f"Approx {word} per lot - {money(abs(per_lot))}")
-        lines.append(f"Approx {word} for {lots} {plural} - {money(abs(pnl))}")
+        done = {f.level for f in position.fills[:-1]}                 # targets already sold before this exit
+        t1_done = position.t1_alerted or "T1" in done
+        at_t1_price = position.stoploss >= position.target1           # stop trailed up to T1 (after T2)
+        at_cost = (not at_t1_price) and position.stoploss >= position.entry and t1_done
+        result_word = "profit" if pnl >= 0 else "loss"
+
+        if at_t1_price:
+            lines = [f"\U0001F6D1 <b>Stoploss hit at Target 1 price</b> - {contract}",
+                     "Target 1 and Target 2 were already reached"]
+        elif at_cost:
+            lines = [f"\U0001F512 <b>Cost-to-cost price reached</b> - {contract}",
+                     "Target 1 was already reached"]
+        else:
+            lines = [f"\U0001F6D1 <b>Stoploss Hit</b> - {contract}"]
+            word = "profit" if per_lot >= 0 else "loss"
+            lines.append(f"Approx {word} per lot - {money(abs(per_lot))}")
+            lines.append(f"Approx {word} for {lots} {plural} - {money(abs(pnl))}")
+            lines.append("<b>Close the trade</b>")
+            return "\n".join(lines)
+
+        # after a target: show what was booked, what the rest made, and the net for the trade
         if earlier != 0:
-            lines.append(f"Booked earlier at targets: {_money(earlier)} | Net for the trade: {_money(total)}")
-        lines.append("<b>Close the trade</b>")
+            lines.append(f"Profit booked at targets - {_money(earlier)}")
+        else:
+            lines.append("Nothing was sold at T1 (single lot) - that profit was only on paper")
+        lines.append(f"Approx {result_word} on the remaining {lots} {plural} - "
+                     f"{money(abs(pnl))}" if pnl != 0 else f"Remaining {lots} {plural} - exited at about cost")
+        lines.append(f"<b>Net for the trade - {_money(total)}</b>")
+        lines.append("<b>Exit the trade</b>")
         return "\n".join(lines)
 
     if level == "TIME":
