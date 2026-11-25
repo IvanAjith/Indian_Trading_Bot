@@ -71,6 +71,7 @@ class PaperPosition:
     reasons: list = field(default_factory=list)
     lot_size: int = 1
     oversize: bool = False       # tracked as 1 lot although it breaks the max-loss rule
+    peak_price: float = 0.0      # highest premium seen while the trade was open (to show what was given back)
     t1_alerted: bool = False    # True once the "Target 1 reached" alert has been sent
 
     def __post_init__(self):
@@ -191,6 +192,8 @@ class PaperTradingAccount:
                 continue
             if not (pos.symbol == symbol and pos.option_type == option_type and pos.strike == strike):
                 continue
+
+            pos.peak_price = max(pos.peak_price, current_ltp)
 
             # Full stoploss on the remaining quantity takes priority.
             if current_ltp <= pos.stoploss:

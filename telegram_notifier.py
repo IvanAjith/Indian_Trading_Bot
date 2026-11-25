@@ -89,25 +89,50 @@ _EXIT_REASON_LABELS = {
 
 
 def format_exit_message(position, level: str, lots: int, price: float) -> str:
-    """position is a paper_trader.PaperPosition. Sent whenever a fill happens
-    (partial target booked, stoploss hit, or the 3:15pm time exit)."""
+    """position is a paper_trader.PaperPosition. Sent whenever a fill happens (partial target booked,
+    stoploss hit, or the time exit). Shows this fill AND how it fits into the whole trade (T1 reached,
+    what was booked, what the stop was) so the final result is never a surprise."""
     expiry_short = _format_expiry_short(position.expiry)
     reason = _EXIT_REASON_LABELS.get(level, level)
+    stop_at_cost = level == "SL" and position.stoploss >= position.entry
+    if stop_at_cost:
+        reason = "\U0001F512 Cost-to-cost stoploss hit"
     pnl = round((price - position.entry) * lots * position.lot_size, 2)
     pnl_emoji = "\U0001F4B0" if pnl >= 0 else "\U0001F4B8"
     remaining = position.lots_remaining
-    status_line = (
-        "Position fully closed." if remaining <= 0
-        else f"{remaining} lot(s) still open, running toward the next target."
-    )
-    return (
-        f"\U0001F51A <b>Exit Options Trade</b>\n"
+    total = round(sum(f.pnl for f in position.fills), 2)       # all fills so far, including this one
+    earlier = round(total - pnl, 2)                            # booked before this exit
+
+    story = []
+    if position.t1_alerted:
+        story.append("\U0001F3AF Target 1 was reached earlier"
+                     + (" - the stoploss had moved to cost" if position.stoploss >= position.entry else ""))
+    if position.peak_price > position.entry:
+        story.append(f"Highest price seen ₹{position.peak_price:.2f} "
+                     f"({(position.peak_price / position.entry - 1) * 100:+.0f}% from entry ₹{position.entry:.2f})")
+    if position.lots_total == 1 and position.t1_alerted and level != "T1":
+        story.append("1 lot cannot be sold in parts, so nothing was booked at T1 - that profit was only on paper")
+    if stop_at_cost and pnl < 0:
+        story.append("The stop is checked at each scan: price had already slipped below cost by then, "
+                     "plus the assumed sell slippage")
+
+    lines = [
+        f"\U0001F51A <b>Exit Options Trade</b>",
         f"\U0001F534 SELL {position.symbol} {expiry_short} {fmt_strike(position.strike)} {position.option_type} "
-        f"at ₹{price:.2f} ({reason})\n"
-        f"⏰ {_now_str()}\n"
-        f"{pnl_emoji} P&L this fill: ₹{pnl:+.2f}\n"
-        f"{status_line}"
-    )
+        f"at ₹{price:.2f} ({reason})",
+        f"⏰ {_now_str()}",
+        f"{pnl_emoji} P&L this exit: ₹{pnl:+.2f}",
+    ]
+    if remaining <= 0:
+        verdict = "PROFIT" if total > 0 else ("LOSS" if total < 0 else "BREAK-EVEN")
+        lines.append(f"\n\U0001F4D2 <b>Whole trade</b>: booked earlier ₹{earlier:+.2f} + this exit ₹{pnl:+.2f}")
+        lines += [f"• {t}" for t in story]
+        lines.append(f"<b>FINAL RESULT: {verdict} ₹{total:+.2f}</b> (before brokerage and taxes)")
+        lines.append("Position fully closed.")
+    else:
+        lines.append(f"{remaining} lot(s) still open, running toward the next target.")
+        lines.append(f"Booked so far on this trade: ₹{total:+.2f}")
+    return "\n".join(lines)
 
 
 def format_t1_message(position, price: float) -> str:

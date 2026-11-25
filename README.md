@@ -107,6 +107,19 @@ Price ₹36.80 (+15% from entry)
 🔒 Move your stoploss to cost (cost-to-cost): ₹32.32
 ```
 
+**Exit message** - shows this exit *and* the whole trade, so the final result is never a surprise
+```
+🔚 Exit Options Trade
+🔴 SELL APLAPOLLO 29 DEC 1520 PE at ₹104.89 (🔒 Cost-to-cost stoploss hit)
+💸 P&L this exit: ₹-1043.00
+📒 Whole trade: booked earlier ₹+0.00 + this exit ₹-1043.00
+• 🎯 Target 1 was reached earlier - the stoploss had moved to cost
+• Highest price seen ₹125.40 (+16% from entry ₹107.87)
+• 1 lot cannot be sold in parts, so nothing was booked at T1 - that profit was only on paper
+FINAL RESULT: LOSS ₹-1043.00 (before brokerage and taxes)
+```
+A stop "at cost" is checked at each scan, so a fast fall can exit a little below cost (plus the assumed 1% sell slippage).
+
 Other automatic messages: 👀 early heads-up · 🔚 exit (T2/T3/stoploss/time) with P&L · ⏳ end-of-day check-in
 · ⚠️ data feed down / ✅ recovered · 📅 market closed today · 🏖️ market closed tomorrow (8 PM) ·
 ❌ bot could not start / run failed · 🔚 session ended with the daily summary.
