@@ -111,10 +111,15 @@ WATCHLIST_MAX_PER_SCAN = 3       # cap how many watchlist alerts fire in a singl
 TARGET_PCT_T1 = 15.0               # book 40% of the position here
 TARGET_PCT_T2 = 30.0               # book another 30% here
 TARGET_PCT_T3 = 50.0               # let the last 30% run to here (or SL/time-exit)
-TARGET_ALLOCATIONS = [1/3, 1/3, 1/3]   # must sum to 1.0, matches T1/T2/T3 (3 lots -> 1 lot at each target)
-LOTS_PER_TRADE = 3                 # every trade buys this many lots (None = size by the risk rule below).
-                                   # With 3 lots: sell 1 lot at T1 (stoploss on the rest moves to cost),
-                                   # sell 1 lot at T2 (stoploss moves to T1), sell the last lot at T3.
+# How a trade is built depends on what it is on:
+#   INDEXES (NIFTY, BANKNIFTY, FINNIFTY): 3 lots, 3 targets - sell 1 lot at T1, 1 at T2, 1 at T3.
+#   STOCKS:                               2 lots, 2 targets - sell 1 lot at T1, 1 at T2, then the trade is done.
+# After T1 the stoploss on the rest moves to cost; for index trades, after T2 it trails up to the T1 price.
+# (Set a LOTS_* value to None to size by the risk rule below instead.)
+LOTS_PER_TRADE_INDEX = 3
+TARGETS_INDEX = 3
+LOTS_PER_TRADE_STOCK = 2
+TARGETS_STOCK = 2
 TRAIL_SL_TO_T1_AFTER_T2 = True     # once Target 2 is hit, move the stoploss up to the Target 1 price
 
 TARGET_PCT = TARGET_PCT_T2         # kept for backward compatibility / backtest.py
@@ -133,7 +138,8 @@ PAPER_TRACK_ALL_SIGNALS = True     # paper-trade EVERY alert the bot sends, so p
                                    # positions, and if one lot is bigger than the 5%-risk rule
                                    # allows it is still tracked as 1 lot (marked "oversize").
                                    # Set False for a strict, capital-limited simulation.
-FORCE_EXIT_TIME = "15:05"          # square off all intraday positions (IST) - before the 15:10 session end
+FORCE_EXIT_TIME = "15:10"          # square off every open (paper) trade at this IST time - nothing is carried overnight.
+                                   # The session itself ends at 15:12 (SESSION_END): GitHub caps a job at 6 hours.
 
 # How long before FORCE_EXIT_TIME to send an end-of-day check-in for any
 # still-open position: current P&L if closed now, plus a reminder that
