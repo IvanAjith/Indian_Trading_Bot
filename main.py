@@ -14,8 +14,6 @@ NSE or your broker, and market-hours awareness. See README.md.
 
 import argparse
 import datetime as dt
-import json
-import os
 import threading
 import time
 
@@ -26,7 +24,7 @@ from strategy import build_trade_idea, _pick_strike
 from paper_trader import PaperTradingAccount
 from telegram_notifier import (
     notify_new_signals, send_telegram_message, format_exit_message, poll_status_requests,
-    format_watchlist_message, format_eod_check_message, format_t1_message, format_trades_summary, format_plan_check, fmt_strike, money,
+    format_watchlist_message, format_eod_check_message, format_t1_message, format_trades_summary, format_plan_check, format_trade_ledger, fmt_strike,
 )
 import backtest as bt
 
@@ -238,44 +236,6 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             base += "No active signals. Scanning the market for potential moves."
         return base
 
-    def _manual_day_section():
-        """ONE-DAY hand-built log (manual_day_log.json) of trades from before a mid-day restart.
-        Returns (text_lines, invested, returned) or None when there is no log for today."""
-        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "manual_day_log.json")
-        try:
-            with open(path) as f:
-                data = json.load(f)
-        except Exception:
-            return None
-        if data.get("date") != dt.date.today().isoformat():
-            return None
-        names = {"T1": "T1 hit", "T2": "T2 hit", "T3": "T3 hit", "SL": "stoploss hit", "TIME": "square-off"}
-        lines = [f"\n\U0001F4D2 <b>{data.get('title', 'Earlier today')}</b>"]
-        inv = ret = 0.0
-        wins = losses = 0
-        for t in data.get("trades", []):
-            units = t["lot_size"] * t["lots"]
-            invested, returned = t["entry"] * units, t["exit_price"] * units
-            pnl = round(returned - invested, 2)
-            inv += invested
-            ret += returned
-            wins, losses = wins + (pnl > 0), losses + (pnl <= 0)
-            t1 = (f"T1 ✅{' ' + t['t1_time'] if t.get('t1_time') else ''}" if t.get("t1") else "T1 ✗ never reached")
-            ex = f"{names.get(t['exit_level'], t['exit_level'])} at ₹{t['exit_price']:.2f}{'~' if t.get('inferred') else ''}"
-            if t.get("exit_time"):
-                ex += f" ({t['exit_time']})"
-            lines.append(
-                f"{'✅' if pnl > 0 else '❌'} <b>{t['symbol']} {fmt_strike(t['strike'])} {t['option_type']}</b> · "
-                f"{t['lots']} lot × {t['lot_size']}\n"
-                f"   {t1} → {ex}\n"
-                f"   ₹{invested:,.0f} → ₹{returned:,.0f} · <b>{money(pnl)}</b>"
-            )
-        lines.append(f"Subtotal: invested ₹{inv:,.0f} → returned ₹{ret:,.0f} = <b>{money(round(ret - inv, 2))}</b> "
-                     f"({wins} profit, {losses} loss)")
-        if data.get("not_included"):
-            lines.append(f"<i>Not included: {data['not_included']}</i>")
-        return lines, inv, ret
-
     def _summary_text(_arg: str = "") -> str:
         now = dt.datetime.now()
         if now.strftime("%H:%M") >= "23:58":
@@ -283,8 +243,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         log = state["day_log"]
         signals, fills, watchlist = log["signals"], log["fills"], log["watchlist"]
         lines = [f"\U0001F4CB <b>Summary for {now:%d %b %Y}</b>"]
-        manual = _manual_day_section()
-        if not signals and not fills and not watchlist and not manual:
+        if not signals and not fills and not watchlist:
             lines.append("Nothing to report yet today.")
             return "\n".join(lines)
 
@@ -301,7 +260,12 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 f"@ ₹{s['entry']:.2f} (score {s['score']:.0f}, ~{s['win_probability']:.0f}% est.)"
             )
 
-        if fills:
+        if account and account.open_positions:
+            lines.append("")
+            lines.append(format_trade_ledger(account.open_positions, _live_price))
+            lines.append("")
+            lines.append(format_plan_check(account.open_positions, _live_price))
+        elif fills:
             total_pnl = round(sum(f["pnl"] for f in fills), 2)
             lines.append(f"\n\U0001F51A Exits/fills: {len(fills)}")
             for f in fills:
@@ -313,35 +277,6 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             lines.append(f"\n{pnl_emoji} Today's P&L: ₹{total_pnl:+.2f}")
         else:
             lines.append("\nNo exits/fills yet today.")
-        if account and account.open_positions:
-            lines.append("\n" + format_plan_check(account.open_positions, _live_price))
-
-        # ---- hand-built early-day log (one day only) + whole-day totals --------------------------------
-        new_inv = new_pnl = 0.0
-        if account:
-            for p in account.open_positions:
-                price = _live_price(p) if p.status != "CLOSED" else None
-                new_inv += p.entry * p.lot_size * p.lots_total
-                new_pnl += p.actual_pnl(price)
-        if manual:
-            m_lines, m_inv, m_ret = manual
-            lines += m_lines
-            total_inv = m_inv + new_inv
-            total_pnl = (m_ret - m_inv) + new_pnl
-            lines.append(
-                f"\n━━━━━━━━━━━━━━\n"
-                f"\U0001F4C5 <b>DAY TOTAL</b> (before brokerage and taxes)\n"
-                f"Capital invested: ₹{total_inv:,.0f}\n"
-                f"Amount returned: ₹{total_inv + total_pnl:,.0f}\n"
-                f"<b>Profit/Loss: {money(round(total_pnl, 2))}</b>\n"
-                f"(earlier today {money(round(m_ret - m_inv, 2))} + restarted session {money(round(new_pnl, 2))})")
-        elif account and account.open_positions:
-            lines.append(
-                f"\n━━━━━━━━━━━━━━\n"
-                f"\U0001F4C5 <b>DAY TOTAL</b> (before brokerage and taxes)\n"
-                f"Capital invested: ₹{new_inv:,.0f}\n"
-                f"Amount returned: ₹{new_inv + new_pnl:,.0f}\n"
-                f"<b>Profit/Loss: {money(round(new_pnl, 2))}</b>")
         return "\n".join(lines)
 
     def _handle_hold(arg: str) -> str:

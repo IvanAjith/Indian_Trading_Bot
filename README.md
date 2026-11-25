@@ -135,7 +135,7 @@ Other automatic messages: 👀 early heads-up · 🔚 exit (T2/T3/stoploss/time)
 |---|---|
 | `/help` | The command list |
 | `/status` | Whether the bot is scanning, last scan time, signals sent |
-| `/trades` | All paper trades today: for each open trade the profit **booked so far**, the **open** profit/loss, the net, the stoploss and what it is waiting for (T1/T2/T3); closed trades with their booked result; and **total profit, total loss and net** at the bottom |
+| `/trades` | All paper trades today: for each open trade the profit **booked so far**, the **open** profit/loss, the net, the stoploss and what it is waiting for (T1/T2/T3); closed trades with their booked result; and **total profit, total loss and net** at the bottom, plus the Plan A vs Plan B comparison |
 | `/pnl` | Booked + open profit and loss, win rate, paper capital |
 | `/summary` | Today's heads-ups, signals, exits and P&L so far |
 | `/add SYMBOL STRIKE CE\|PE ENTRY [LOTS]` | Track a trade you took yourself, e.g. `/add NIFTY 25800 CE 249.87` (a rounded strike like 308 matches the real 307.5). Uses your entry price, the real lot size, the usual stoploss/targets, T1 alert and exits |
@@ -203,12 +203,14 @@ Every `paper_trades.csv` row is one fill: symbol, strike, level (T1/T2/T3/SL/TIM
 P&L, entry price, score, lot size and the trigger reasons - so you can analyse which score bands and
 reasons actually win. Review weekly; judge the rules on weeks of data, not one day.
 
-**Which plan is better? (`trade_results.csv`)** Every closed trade is also written to `trade_results.csv` with
-two results for the *same* trade: `scale_out_pnl` (the 3-lot plan the bot follows) and `t1_only_pnl` (what it
-would have earned selling every lot the moment Target 1 was reached), plus the difference. `/trades` and the
-daily summary show the running comparison ("Plan check"). Trades that never reached T1 are identical in both
-plans. Use it to decide, after enough days, whether holding for T2/T3 beats simply taking T1 (figures are
-before brokerage and taxes).
+**Which plan is better? (`trade_results.csv`)** The same trades are always measured two ways, with the money side:
+- **Plan A - 3 lots, scale-out** (what the bot follows): capital invested → amount returned → profit/loss.
+- **Plan B - 1 lot, sold at Target 1.**
+Every closed trade becomes a row in `trade_results.csv` (columns `a_capital, a_returned, a_pnl, b_capital,
+b_returned, b_pnl, a_minus_b`). `/trades` and the 15:10 summary show the running **Plan comparison**, and the summary
+lists each trade (T1 ✅ → T2 ✅ → stoploss/square-off, invested → returned, P&L) with a **DAY TOTAL**: capital
+invested, amount returned, profit/loss - all before brokerage and taxes. Trades that never reached T1 behave the
+same in both plans (B is simply one third of A's loss).
 
 Optional visual backtest (approximate - uses daily candles and a fixed-delta premium model):
 `python3 backtest_report.py --broker angelone` → open `backtest_report.html`.
