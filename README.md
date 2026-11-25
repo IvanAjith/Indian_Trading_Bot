@@ -126,10 +126,26 @@ Approx loss per lot - ₹9,767.40
 Approx loss for 3 lots - ₹29,302.20
 Close the trade
 ```
-A stoploss hit after a target also shows what was booked earlier and the net for the trade, and says
-"(stop was at cost)" or "(trailing stop at T1)". A stop is checked at each scan, so a fast fall can exit a little
-below the stop (plus the assumed 1% sell slippage). A one-lot trade sells nothing at T1, so its T1 message says
-"Approx profit on paper" and still tells you to move the stop to cost.
+**When the price comes back after a target** the message says which price was reached, which targets were
+already hit, what was booked, and tells you to exit:
+```
+🔒 Cost-to-cost price reached - FINNIFTY 29 DEC 28700 CE        (after T1, back at your entry price)
+Target 1 was already reached
+Profit booked at targets - +₹6,270.60
+Approx loss on the remaining 2 lots - ₹1,714.80
+Net for the trade - +₹4,555.80
+Exit the trade
+
+🛑 Stoploss hit at Target 1 price - FINNIFTY 29 DEC 28700 CE   (after T2, back at the T1 price)
+Target 1 and Target 2 were already reached
+Profit booked at targets - +₹19,372.20
+Approx profit on the remaining 1 lot - ₹5,082.60
+Net for the trade - +₹24,454.80
+Exit the trade
+```
+A stop is checked at each scan, so a fast fall can exit a little below the stop (plus the assumed 1% sell
+slippage) - that is why the remaining lots can show a small loss even though the stop was "at cost". A one-lot
+trade sells nothing at T1, so its T1 message says "Approx profit on paper" and still tells you to move the stop to cost.
 
 Other automatic messages: 👀 early heads-up · ⏰ square-off / ✋ manual close · ⏳ end-of-day check-in
 · ⚠️ data feed down / ✅ recovered · 📅 market closed today · 🏖️ market closed tomorrow (8 PM) ·
