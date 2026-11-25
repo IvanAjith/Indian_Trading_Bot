@@ -19,7 +19,8 @@ rules really work before risking money.
 | **20:00 (evening before)** | `Market holiday notice` job messages you only if tomorrow is a weekday NSE holiday |
 | **~09:15** | Session starts, logs in to Angel One, sends **🟢 Bot started** |
 | **09:15 - 09:20** | Waits, then confirms via live data that NSE actually traded today. If not (holiday) it sends **📅 Market closed today** and stops |
-| **09:20 - 15:10** | Scans continuously. Sends heads-ups, buy signals, target / stoploss alerts; paper-trades each signal |
+| **09:20 - 14:45** | Scans continuously. Sends heads-ups, buy signals, target / stoploss alerts; paper-trades each signal |
+| **14:45 - 15:10** | **No new alerts or heads-ups** (too little time before the square-off); later signals are tracked silently for the journal. Open trades keep being managed. |
 | **~14:55** | End-of-day check-in for any position still open |
 | **15:10** | Every open paper position is squared off, so nothing is carried to the next day |
 | **15:12** | Session ends and sends the **daily summary** (signals, exits, P&L, bot health); the trade journal is saved |
@@ -271,6 +272,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 
 | Setting | Default | What it does |
 |---|---|---|
+| `NO_ALERTS_AFTER` | 14:45 | No new alerts or heads-ups after this time; later signals are tracked silently |
 | `ALERT_SCORE` | 70 | Entry alerts for every signal at or above this score |
 | `MIN_SIGNAL_SCORE` / `SHADOW_TRACK_LOWER_BAND` | 65 / True | Floor for any signal; signals between 65 and the alert score are tracked silently for learning |
 | `WATCHLIST_MIN_SCORE` | 65 | Heads-ups for scores from here up to the alert score |

@@ -66,6 +66,9 @@ ALERT_SCORE = 70.0               # a Telegram ENTRY ALERT is sent for every sign
 SHADOW_TRACK_LOWER_BAND = True   # signals between MIN_SIGNAL_SCORE and ALERT_SCORE send NO alert, but are paper-traded
                                  # silently and written to the journal, so the weekly review can tell whether the
                                  # lower band really is worse (and the alert score can be set from data, not a guess)
+NO_ALERTS_AFTER = "14:45"        # no entry alerts or heads-ups from this IST time on: a trade opened later has too little time
+                                 # before the 15:10 square-off. Signals after it are tracked silently (journal only).
+                                 # None = no cutoff.
 MAX_ALERTS_PER_SCAN = 2          # at most this many new alerts per scan, best score first. Others are NOT lost:
                                  # if they still qualify they alert in the next scan, a minute or two later
 MAX_ALERTS_PER_DAY = None        # optional hard limit on alerts per day (None = no limit)

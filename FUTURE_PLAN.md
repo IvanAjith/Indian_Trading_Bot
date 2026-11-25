@@ -22,6 +22,7 @@ one at a time ("build item 4.2"). Keep one change per release, so results stay c
 | Plan | **Indexes** (NIFTY, BANKNIFTY, FINNIFTY): 3 lots, 3 targets. **Stocks**: 2 lots, 2 targets. One lot sold at each target. |
 | Targets/stop | T1 +15%, T2 +30%, T3 +50% (indexes only); stoploss -18%. After T1 stop → cost; after T2 (indexes) stop → T1 price. |
 | Square-off | 15:10 (`FORCE_EXIT_TIME`); nothing carried overnight. Session ends 15:12 (GitHub's 6-hour job limit). |
+| Late signals | **No alerts or heads-ups after 14:45** (`NO_ALERTS_AFTER`); later signals are tracked silently. Added 25 Nov 2026 after the old session sent alerts at 14:52 and 15:09 (last 5 late trades lost ₹10,071 vs +₹27,948 for the 10 earlier ones - one day only). |
 | Messages | Short, action-first, every amount **per lot**. Watch message names the contract. Entry alert has no "plan" section. |
 | Paper fills | 1% slippage each side; charges not deducted (summaries say "before brokerage and taxes"). |
 | End of day | Summary shows each trade, day total (capital invested → returned → profit/loss), Plan A (full plan) vs Plan B (1 lot sold at T1), peak capital, silent-tracking line. |
@@ -79,9 +80,9 @@ Where the data lives: `journal-data` branch → `journal/YYYY-MM-DD.md` (read), 
 - **What:** enter at the real best ask and exit at the best bid (Angel One `getMarketData` FULL includes depth) instead of a flat 1%; deduct brokerage (₹20/order) and taxes (STT, exchange fees, GST, stamp duty) in the P&L.
 - **Actions:** read `depth` in `angelone_provider._quotes_from_rows` (add bid/ask to `OptionQuote`); use them in `paper_trader.open_trade/_fill`; add a charges function (the formulas used in the 25 Nov analysis are a starting point - verify current rates); show "after charges" next to "before charges" in the summary.
 
-### 4.4 Late-entry cutoff - S - after review item 4
-- **What:** no alerts after e.g. 14:30; later signals are tracked silently.
-- **Actions:** new `NO_ALERTS_AFTER = "14:30"` in `config.py`; in the alert loop (`main.py`) route signals after that time to `_track_silently`.
+### 4.4 Late-entry cutoff - DONE (14:45) - revisit at the checkpoints
+- **Built:** `NO_ALERTS_AFTER = "14:45"` in `config.py`; the alert loop routes later signals to silent tracking and heads-ups stop.
+- **Revisit:** the weekly review's Entry-time table (and the silent trades after 14:45) show whether 14:45 should move earlier/later.
 
 ### 4.5 NIFTY-trend filter - S/M - after review item 3
 - **What:** skip (or silence) stock signals that oppose NIFTY's move on the day; the journal already records `nifty_chg_pct`.
