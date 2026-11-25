@@ -5,7 +5,14 @@ name: NSE options signal bot
 # IST (TZ below) so its timings stay correct regardless.
 on:
   schedule:
-    - cron: "45 3 * * 1-5"      # 09:15 IST, Monday-Friday
+    # GitHub sometimes delays or skips a scheduled run, so there are 4 start times, 5 minutes
+    # apart, as backups (Monday-Friday, IST in brackets). Only one session ever runs: the
+    # others queue behind it (see "concurrency") and then exit immediately because the
+    # session is over.
+    - cron: "45 3 * * 1-5"      # 09:15 IST
+    - cron: "50 3 * * 1-5"      # 09:20 IST
+    - cron: "55 3 * * 1-5"      # 09:25 IST
+    - cron: "0 4 * * 1-5"       # 09:30 IST
   workflow_dispatch:             # "Run workflow" button for manual tests
     inputs:
       session_end:
@@ -35,17 +42,32 @@ jobs:
       TB_TELEGRAM_CHAT_ID: ${{ secrets.TB_TELEGRAM_CHAT_ID }}
       SESSION_END: ${{ github.event.inputs.session_end || vars.SESSION_END || '15:10' }}
     steps:
+      - name: Skip if today's session end time has already passed
+        id: guard
+        shell: bash
+        run: |
+          now=$(date +%H:%M)
+          if [[ "$now" < "$SESSION_END" ]]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=false" >> "$GITHUB_OUTPUT"
+            echo "It is $now IST, past the session end $SESSION_END - nothing to do."
+          fi
       - uses: actions/checkout@v4
+        if: steps.guard.outputs.go == 'true'
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
+        if: steps.guard.outputs.go == 'true'
       - run: pip install -r requirements.txt
+        if: steps.guard.outputs.go == 'true'
       - name: Run bot until session end
+        if: steps.guard.outputs.go == 'true'
         shell: bash   # enables pipefail so a crash fails the job
         run: python -u main.py --mode monitor --paper --broker angelone --strict --skip-if-closed --session-end "$SESSION_END" 2>&1 | tee monitor.log
       - name: Save logs and paper trades
-        if: always()
+        if: always() && steps.guard.outputs.go == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: bot-${{ github.run_id }}
@@ -55,7 +77,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 90
       - name: Tell me on Telegram if the run failed
-        if: failure()
+        if: failure() && steps.guard.outputs.go == 'true'
         run: |
           curl -s "https://api.telegram.org/bot${TB_TELEGRAM_TOKEN}/sendMessage" \
             -d chat_id="${TB_TELEGRAM_CHAT_ID}" \
