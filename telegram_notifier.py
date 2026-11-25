@@ -131,47 +131,104 @@ def format_t1_message(position, price: float) -> str:
     )
 
 
+def _money(x: float) -> str:
+    if abs(x) < 0.005:
+        return "₹0.00"
+    return f"{'+' if x > 0 else '-'}₹{abs(x):,.2f}"
+
+
 def format_trades_summary(positions: list, live_price) -> str:
-    """Body of the /trades reply: every paper trade today, open ones first with live P&L,
-    then closed ones with result and P&L. live_price(position) -> latest premium or None."""
+    """Body of the /trades reply. Every paper trade today with: profit/loss BOOKED so far (money
+    already locked in by partial sales / exits), the OPEN profit/loss on what is still held, their
+    net, and what it is waiting for next. Totals (profit, loss, net) are always at the bottom.
+    live_price(position) -> latest premium or None."""
     if not positions:
         return "No paper trades yet today."
     open_positions = [p for p in positions if p.status != "CLOSED"]
     closed = [p for p in positions if p.status == "CLOSED"]
-    lines = [f"\U0001F4C2 <b>Paper trades today: {len(positions)}</b>  "
-             f"({len(open_positions)} open, {len(closed)} closed)"]
-    if open_positions:
-        lines.append("\n<b>OPEN</b>")
+
+    blocks, nets = [], []          # one text block per trade; net P&L per trade (booked + open)
+    booked_total = open_total = 0.0
+    unpriced = 0
+
+    def levels_reached(p):
+        done = set(p.booked_levels)
+        if p.t1_alerted:
+            done.add("T1")
+        return done
+
     for p in open_positions:
+        booked = round(sum(f.pnl for f in p.fills), 2)
         price = live_price(p)
         if price is not None:
-            unreal = round((price - p.entry) * p.lots_remaining * p.lot_size, 2)
-            now_txt = f"Now ₹{price:.2f} ({unreal:+.2f})"
+            open_pnl = round((price - p.entry) * p.lots_remaining * p.lot_size, 2)
+            price_txt = f"Now ₹{price:.2f}"
         else:
-            now_txt = "Now: no fresh price"
-        if p.t1_alerted:
-            status = ("\U0001F3AF T1 reached - stoploss moved to cost" if config.MOVE_SL_TO_COST_AFTER_T1
-                      else "\U0001F3AF T1 reached")
-            if p.booked_levels:
-                status += f" (sold at {', '.join(sorted(p.booked_levels))})"
+            open_pnl, price_txt = 0.0, "Now: no fresh price"
+            unpriced += 1
+        net = round(booked + open_pnl, 2)
+        booked_total += booked
+        open_total += open_pnl
+        nets.append(net)
+
+        done = levels_reached(p)
+        nxt = next((lv for lv in ("T1", "T2", "T3") if lv not in done), None)
+        targets = {"T1": p.target1, "T2": p.target2, "T3": p.target3}
+        if nxt is None:
+            status = "all targets reached"
+        elif not done:
+            status = f"⏳ waiting for T1 (₹{p.target1:.2f})"
         else:
-            status = "waiting for T1"
+            status = (f"\U0001F3AF {'/'.join(lv for lv in ('T1', 'T2', 'T3') if lv in done)} reached"
+                      f" - waiting for {nxt} (₹{targets[nxt]:.2f})")
+        sl_note = " (at cost)" if p.stoploss >= p.entry else ""
         flag = " ⚠️oversize" if p.oversize else ""
-        lines.append(
-            f"\n<b>{p.symbol} {fmt_strike(p.strike)} {p.option_type}</b>  {p.lots_remaining}/{p.lots_total} lots{flag}\n"
-            f"Entry ₹{p.entry:.2f} | {now_txt}\n"
-            f"SL ₹{p.stoploss:.2f} | T1 ₹{p.target1:.2f} T2 ₹{p.target2:.2f} T3 ₹{p.target3:.2f}\n"
+        blocks.append(
+            f"<b>{p.symbol} {fmt_strike(p.strike)} {p.option_type}</b>  {p.lots_remaining}/{p.lots_total} lots{flag}\n"
+            f"Entry ₹{p.entry:.2f} | {price_txt}\n"
+            f"\U0001F4B0 Booked {_money(booked)} | Open {_money(open_pnl)} | Net {_money(net)}\n"
+            f"\U0001F6D1 SL ₹{p.stoploss:.2f}{sl_note}\n"
             f"{status}"
         )
-    if closed:
-        lines.append("\n<b>CLOSED</b>")
+
+    closed_lines = []
     for p in closed:
-        pnl = sum(f.pnl for f in p.fills)
+        booked = round(sum(f.pnl for f in p.fills), 2)
+        booked_total += booked
+        nets.append(booked)
         how = "/".join(dict.fromkeys(f.level for f in p.fills)) or "-"
-        lines.append(f"{'✅' if pnl >= 0 else '❌'} {p.symbol} {fmt_strike(p.strike)} {p.option_type}  {how}  ₹{pnl:+.2f}")
-    text = "\n".join(lines)
-    if len(text) > 3800:   # Telegram caps a message at 4096 characters
-        text = text[:3800].rsplit("\n", 1)[0] + "\n... (more trades not shown - see paper_trades.csv)"
+        closed_lines.append(f"{'✅' if booked >= 0 else '❌'} {p.symbol} {fmt_strike(p.strike)} "
+                            f"{p.option_type} - closed at {how} - booked {_money(booked)}")
+
+    profit = round(sum(n for n in nets if n > 0), 2)
+    loss = round(sum(n for n in nets if n < 0), 2)
+    net_total = round(booked_total + open_total, 2)
+    footer = (
+        f"\n\n━━━━━━━━━━━━\n"
+        f"✅ Total profit: {_money(profit)}  ({sum(1 for n in nets if n > 0)} trade(s))\n"
+        f"❌ Total loss: {_money(loss)}  ({sum(1 for n in nets if n < 0)} trade(s))\n"
+        f"\U0001F4B0 Booked so far: {_money(round(booked_total, 2))} | Open: {_money(round(open_total, 2))}\n"
+        f"<b>NET: {_money(net_total)}</b>"
+        + ("\n<i>(some open trades have no fresh price - counted as 0 open P&L)</i>" if unpriced else "")
+    )
+    header = (f"\U0001F4C2 <b>Paper trades today: {len(positions)}</b>  "
+              f"({len(open_positions)} open, {len(closed)} closed)")
+
+    parts = [header]
+    if blocks:
+        parts.append("\n<b>OPEN</b>")
+    # Telegram caps a message at 4096 characters: if there are very many trades, drop the oldest
+    # detail blocks but ALWAYS keep the totals at the bottom.
+    shown = list(blocks)
+    def assemble(blks):
+        body = parts + [("\n" + b) for b in blks]
+        if closed_lines:
+            body += ["\n<b>CLOSED</b>"] + closed_lines
+        return "\n".join(body) + footer
+    text = assemble(shown)
+    while len(text) > 3900 and shown:
+        shown.pop()
+        text = assemble(shown) + f"\n<i>... {len(blocks) - len(shown)} more open trade(s) not shown</i>"
     return text
 
 
