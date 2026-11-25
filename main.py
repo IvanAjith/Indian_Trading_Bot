@@ -384,7 +384,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
     def _track_silently(r):
         """A signal below ALERT_SCORE: no alert, no Telegram. Paper-trade it quietly (one per symbol per day, and
         only if the symbol has not alerted) so the journal and weekly review can compare the lower score band."""
-        if not account or not config.SHADOW_TRACK_LOWER_BAND:
+        if not account or not config.SHADOW_TRACK_LOWER_BAND or r.score < config.MIN_SIGNAL_SCORE:
             return
         if r.symbol in state["shadow_symbols"] or state["alerts_by_symbol"].get(r.symbol, 0):
             return

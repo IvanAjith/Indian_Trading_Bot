@@ -52,19 +52,19 @@ Each symbol gets a 0-100 **score**:
 | Volume | 20% | Today's volume vs the 20-day average |
 | IV | 10% | Off by default (`FETCH_IV`), so effectively a constant |
 
-- Score **75 or more** (`ALERT_SCORE`) → a full **entry alert** (call for bullish, put for bearish). **Every** signal
-  at or above 75 alerts - there is no daily limit - with these rules:
+- Score **70 or more** (`ALERT_SCORE`) → a full **entry alert** (call for bullish, put for bearish). **Every** signal
+  at or above 70 alerts - there is no daily limit - with these rules:
   - **Budget:** signals whose contract costs more than **₹35,000 for one lot** (`MAX_COST_PER_LOT`) are skipped, so
     every alert is something a ₹1 lakh account can take (about 3 trades at once). Skipped ones are counted in the
     daily summary. Index options like BANKNIFTY/FINNIFTY usually fall out; NIFTY stays.
   - **At most 2 alerts per scan** (`MAX_ALERTS_PER_SCAN`), best score first, to avoid an opening burst. Nothing is
     lost: a signal that does not fit in this scan alerts in the next one, a minute or two later, if it still qualifies.
   - **One alert per stock/index per day** (see below).
-- Score **70 to 74.9** → **no alert**. These signals are paper-traded **silently** (`SHADOW_TRACK_LOWER_BAND`) and
+- Score **65 to 69.9** → **no alert**. These signals are paper-traded **silently** (`SHADOW_TRACK_LOWER_BAND`) and
   written to the journal, so the weekly review can show whether the lower band really does worse. The summary has a
   "🔇 Silent tracking" line; they never appear in `/trades` or in your totals. If the silent trades turn out as good
   as the alerted ones, the alert score can come down; if clearly worse, it stays.
-- Score **65 to 74.9 and rising** → one **👀 early heads-up** per stock per day.
+- Score **65 to 69.9 and rising** → one **👀 early heads-up** per stock per day.
 - Named triggers explain *why* it fired (20-day breakout/breakdown, support bounce/rejection, EMA trend,
   two confirming candles, volume spike, OI buildup).
 
@@ -280,8 +280,8 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 
 | Setting | Default | What it does |
 |---|---|---|
-| `ALERT_SCORE` | 75 | Entry alerts for every signal at or above this score |
-| `MIN_SIGNAL_SCORE` / `SHADOW_TRACK_LOWER_BAND` | 70 / True | Floor for any signal; signals between 70 and the alert score are tracked silently for learning |
+| `ALERT_SCORE` | 70 | Entry alerts for every signal at or above this score |
+| `MIN_SIGNAL_SCORE` / `SHADOW_TRACK_LOWER_BAND` | 65 / True | Floor for any signal; signals between 65 and the alert score are tracked silently for learning |
 | `WATCHLIST_MIN_SCORE` | 65 | Heads-ups for scores from here up to the alert score |
 | `MAX_COST_PER_LOT`, `MAX_ALERTS_PER_SCAN`, `MAX_ALERTS_PER_DAY` | 35,000, 2, None | Budget filter (cost of 1 lot), alerts per scan, optional alerts-per-day limit (None = no limit) |
 | `STOPLOSS_PCT`, `TARGET_PCT_T1/T2/T3` | 18, 15/30/50 | Stop and targets on the option price |
