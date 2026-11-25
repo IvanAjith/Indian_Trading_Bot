@@ -92,9 +92,12 @@ Each symbol gets a 0-100 **score**:
 
 **Watchlist heads-up** - deliberately tiny, so you can tell it apart at a glance
 ```
-👀 WATCH ONLY: RELIANCE ↑ (bullish, score 66)
-Add to watchlist - not an entry yet.
+👀 WATCH ONLY ↑ - add to watchlist
+NIFTY 01 DEC 25850 CE · ₹249.87
+Bullish, score 64 - not an entry yet.
 ```
+It names the at-the-money contract the bot would trade right now (expiry, strike, CE/PE) with its current
+price. If the price moves before the entry alert, the strike in the entry alert can differ by a step.
 
 **Target 1 reached**
 ```

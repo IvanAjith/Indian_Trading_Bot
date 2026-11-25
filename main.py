@@ -20,7 +20,7 @@ import time
 import config
 from data_fetcher import get_provider
 from screener import rank_universe, watchlist_candidates
-from strategy import build_trade_idea
+from strategy import build_trade_idea, _pick_strike
 from paper_trader import PaperTradingAccount
 from telegram_notifier import (
     notify_new_signals, send_telegram_message, format_exit_message, poll_status_requests,
@@ -249,7 +249,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         if watchlist:
             lines.append(f"\n\U0001F440 Watchlist alerts: {len(watchlist)}")
             for w in watchlist:
-                lines.append(f"  • {w['time']} {w['symbol']} {w['option_type']} (score {w['score']:.0f})")
+                lines.append(f"  • {w['time']} {w.get('contract') or (w['symbol'] + ' ' + w['option_type'])} "
+                             f"(score {w['score']:.0f})")
 
         lines.append(f"\n\U0001F195 Signals sent: {len(signals)}")
         for s in signals:
@@ -679,15 +680,24 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 print(f"[monitor] {now:%H:%M} - {len(new_watch_results)} watchlist candidate(s) "
                       f"(below the buy threshold)"
                       f"{f', {skipped} more capped this cycle' if skipped > 0 else ''}:")
+                watch_legs = {}
                 for r in new_watch_results:
                     print(f"  \U0001F440 {r.symbol:12s} {r.bias:8s} score {r.score}")
+                    snap_w = snap_by_symbol.get(r.symbol)
+                    try:
+                        watch_legs[r.symbol] = (_pick_strike(snap_w, "CE" if r.bias == "BULLISH" else "PE")
+                                                if snap_w else None)
+                    except Exception:
+                        watch_legs[r.symbol] = None
+                    leg_w = watch_legs[r.symbol]
                     state["day_log"]["watchlist"].append({
                         "time": now.strftime("%H:%M"), "symbol": r.symbol,
                         "option_type": "CE" if r.bias == "BULLISH" else "PE", "score": r.score,
+                        "contract": (f"{r.symbol} {fmt_strike(leg_w.strike)} {leg_w.option_type}" if leg_w else None),
                     })
                 if config.TELEGRAM_ENABLED:
                     for r in new_watch_results:
-                        send_telegram_message(format_watchlist_message(r))
+                        send_telegram_message(format_watchlist_message(r, watch_legs.get(r.symbol)))
 
             new_ideas = []
             for r in ranked:
