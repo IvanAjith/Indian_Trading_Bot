@@ -181,7 +181,7 @@ def format_trades_summary(positions: list, live_price) -> str:
         else:
             status = (f"\U0001F3AF {'/'.join(lv for lv in ('T1', 'T2', 'T3') if lv in done)} reached"
                       f" - waiting for {nxt} (₹{targets[nxt]:.2f})")
-        sl_note = " (at cost)" if (config.MOVE_SL_TO_COST_AFTER_T1 and "T1" in done) else ""
+        sl_note = " (at cost)" if p.stoploss >= p.entry else ""
         flag = " ⚠️oversize" if p.oversize else ""
         blocks.append(
             f"<b>{p.symbol} {fmt_strike(p.strike)} {p.option_type}</b>  {p.lots_remaining}/{p.lots_total} lots{flag}\n"
