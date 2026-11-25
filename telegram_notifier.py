@@ -175,20 +175,25 @@ def format_trades_summary(positions: list, live_price) -> str:
     return text
 
 
-def format_watchlist_message(result) -> str:
-    """Lighter-weight than format_signal_message - for a symbol with a real
-    directional bias that hasn't cleared MIN_SIGNAL_SCORE yet. `result` is a
-    screener.ScreenResult - this is deliberately about the UNDERLYING only
-    (no strike/premium/expiry), since which strike ends up relevant depends
-    on the actual entry price at whatever moment a real signal fires later -
-    not worth surfacing here. Check the option chain yourself if you want to
-    look, or just wait for the full alert."""
-    arrow = "↑" if result.bias == "BULLISH" else "↓"
-    word = "bullish" if result.bias == "BULLISH" else "bearish"
+def format_watchlist_message(result, leg=None) -> str:
+    """Short heads-up: the CONTRACT to add to your watchlist (same style as the entry alert), so it
+    can be told apart at a glance from the long ENTRY ALERT. `result` is a screener.ScreenResult;
+    `leg` is the at-the-money option quote the bot would trade (strategy._pick_strike), if known."""
+    bullish = result.bias == "BULLISH"
+    arrow = "↑" if bullish else "↓"
+    word = "Bullish" if bullish else "Bearish"
+    option_type = "CE" if bullish else "PE"
+    if leg is not None:
+        contract = (f"{result.symbol} {_format_expiry_short(leg.expiry)} "
+                    f"{fmt_strike(leg.strike)} {leg.option_type}")
+        price = f" · ₹{leg.ltp:.2f}" if leg.ltp else ""
+    else:   # contract not known (e.g. no option chain this scan): fall back to the underlying
+        contract = f"{result.symbol} {option_type} (spot ₹{result.spot:,.2f})"
+        price = ""
     return (
-        f"\U0001F440 <b>WATCH ONLY: {result.symbol} {arrow}</b> "
-        f"({word}, score {result.score:.0f})\n"
-        f"Add to watchlist - not an entry yet."
+        f"\U0001F440 <b>WATCH ONLY {arrow} - add to watchlist</b>\n"
+        f"<b>{contract}</b>{price}\n"
+        f"{word}, score {result.score:.0f} - not an entry yet."
     )
 
 
