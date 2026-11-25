@@ -5,12 +5,14 @@ name: NSE options signal bot
 # IST (TZ below) so its timings stay correct regardless.
 on:
   schedule:
-    # GitHub sometimes delays or skips a scheduled run, so there are 3 start times as backups
-    # (all Monday-Friday, IST in brackets). Only one session ever runs: the others queue
-    # behind it (see "concurrency") and then exit immediately because the session is over.
+    # GitHub sometimes delays or skips a scheduled run, so there are 4 start times, 5 minutes
+    # apart, as backups (Monday-Friday, IST in brackets). Only one session ever runs: the
+    # others queue behind it (see "concurrency") and then exit immediately because the
+    # session is over.
     - cron: "45 3 * * 1-5"      # 09:15 IST
-    - cron: "5 4 * * 1-5"       # 09:35 IST
-    - cron: "35 4 * * 1-5"      # 10:05 IST
+    - cron: "50 3 * * 1-5"      # 09:20 IST
+    - cron: "55 3 * * 1-5"      # 09:25 IST
+    - cron: "0 4 * * 1-5"       # 09:30 IST
   workflow_dispatch:             # "Run workflow" button for manual tests
     inputs:
       session_end:

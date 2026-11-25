@@ -35,7 +35,7 @@ The default session is now the **full day**, 09:15-15:10 IST (~6 h/day) - only s
 ## Limits to know
 - Not tick-live: scan cadence is roughly 1-2 minutes. Signals are for options
   you place yourself by hand; paper fills assume `PAPER_SLIPPAGE_PCT` slippage per side.
-- GitHub's scheduler can start a run late or skip it, so the workflow has three start times (09:15, 09:35, 10:05 IST). Only one session runs; a late start still works (the market-open check passes any time after 09:20). If nothing has started by ~10:15, press **Run workflow** yourself.
+- GitHub's scheduler can start a run late or skip it, so the workflow has four start times (09:15, 09:20, 09:25, 09:30 IST). Only one session runs. If nothing has started by ~09:45, press **Run workflow** yourself.
 - Telegram commands (`help`, `status`, `trades`, `pnl`, `summary`, `close`) work only while a session is running.
 - Angel One may restrict API access by IP; GitHub runners have changing IPs.
   If login fails you will get a "Bot could not start" message.
