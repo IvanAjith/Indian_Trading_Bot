@@ -161,6 +161,24 @@ class PaperTradingAccount:
         self.open_positions.append(pos)
         return pos
 
+    def open_manual(self, symbol: str, option_type: str, strike: float, entry: float, expiry: str,
+                    lot_size: int, lots: int = None) -> PaperPosition:
+        """Register a trade you took yourself. Uses YOUR entry price as-is (no extra slippage), the
+        usual stoploss/targets from config, and tracks it like any other paper trade."""
+        if lots is None:
+            lots = max(position_size(self.capital, entry, lot_size), 1)
+        pos = PaperPosition(
+            symbol=symbol, option_type=option_type, strike=strike, expiry=expiry, entry=round(entry, 2),
+            target1=round(entry * (1 + config.TARGET_PCT_T1 / 100), 2),
+            target2=round(entry * (1 + config.TARGET_PCT_T2 / 100), 2),
+            target3=round(entry * (1 + config.TARGET_PCT_T3 / 100), 2),
+            stoploss=round(entry * (1 - config.STOPLOSS_PCT / 100), 2),
+            lots_total=lots, opened_at=dt.datetime.now().isoformat(timespec="seconds"),
+            reasons=["manual entry (added via /add)"], lot_size=lot_size,
+        )
+        self.open_positions.append(pos)
+        return pos
+
     def mark_to_market(self, symbol: str, option_type: str, strike: float, current_ltp: float):
         """Call this repeatedly (e.g. every 1-5 min during market hours) with
         fresh LTP for each open leg to book partial targets / stoploss / the
