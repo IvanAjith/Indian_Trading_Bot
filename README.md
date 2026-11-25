@@ -105,27 +105,33 @@ Bullish, score 64 - not an entry yet.
 It names the at-the-money contract the bot would trade right now (expiry, strike, CE/PE) with its current
 price. If the price moves before the entry alert, the strike in the entry alert can differ by a step.
 
-**Target 1 reached**
+**What to do at each step** - short, action-first messages (one lot is sold at each target):
 ```
-🎯 Target 1 reached - RELIANCE 29 DEC 1400 CE
-Price ₹36.80 (+15% from entry)
-🔒 Move your stoploss to cost (cost-to-cost): ₹32.32
-```
+🎯 Target 1 hit - FINNIFTY 29 DEC 28700 CE at ₹891.00
+Approx profit - ₹6,270.60
+Move remaining quantity to C2C price - ₹786.49
 
-**Exit message** - shows this exit *and* the whole trade, so the final result is never a surprise
-```
-🔚 Exit Options Trade
-🔴 SELL APLAPOLLO 29 DEC 1520 PE at ₹104.89 (🔒 Cost-to-cost stoploss hit)
-💸 P&L this exit: ₹-1043.00
-📒 Whole trade: booked earlier ₹+0.00 + this exit ₹-1043.00
-• 🎯 Target 1 was reached earlier - the stoploss had moved to cost
-• Highest price seen ₹125.40 (+16% from entry ₹107.87)
-• 1 lot cannot be sold in parts, so nothing was booked at T1 - that profit was only on paper
-FINAL RESULT: LOSS ₹-1043.00 (before brokerage and taxes)
-```
-A stop "at cost" is checked at each scan, so a fast fall can exit a little below cost (plus the assumed 1% sell slippage).
+🎯 Target 2 hit - FINNIFTY 29 DEC 28700 CE at ₹1004.85
+Approx profit - ₹13,101.60
+Move remaining quantity to Target 1 price - ₹895.50
+Total booked so far - +₹19,372.20
 
-Other automatic messages: 👀 early heads-up · 🔚 exit (T2/T3/stoploss/time) with P&L · ⏳ end-of-day check-in
+🏁 All targets hit - FINNIFTY 29 DEC 28700 CE at ₹1158.30
+Approx profit - ₹22,308.60
+Total for the trade - +₹41,680.80
+Close the trade
+
+🛑 Stoploss Hit - FINNIFTY 29 DEC 28700 CE
+Approx loss per lot - ₹9,767.40
+Approx loss for 3 lots - ₹29,302.20
+Close the trade
+```
+A stoploss hit after a target also shows what was booked earlier and the net for the trade, and says
+"(stop was at cost)" or "(trailing stop at T1)". A stop is checked at each scan, so a fast fall can exit a little
+below the stop (plus the assumed 1% sell slippage). A one-lot trade sells nothing at T1, so its T1 message says
+"Approx profit on paper" and still tells you to move the stop to cost.
+
+Other automatic messages: 👀 early heads-up · ⏰ square-off / ✋ manual close · ⏳ end-of-day check-in
 · ⚠️ data feed down / ✅ recovered · 📅 market closed today · 🏖️ market closed tomorrow (8 PM) ·
 ❌ bot could not start / run failed · 🔚 session ended with the daily summary.
 
