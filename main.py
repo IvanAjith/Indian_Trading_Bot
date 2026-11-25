@@ -24,7 +24,7 @@ from strategy import build_trade_idea, _pick_strike
 from paper_trader import PaperTradingAccount
 from telegram_notifier import (
     notify_new_signals, send_telegram_message, format_exit_message, poll_status_requests,
-    format_watchlist_message, format_eod_check_message, format_t1_message, format_trades_summary, fmt_strike,
+    format_watchlist_message, format_eod_check_message, format_t1_message, format_trades_summary, format_plan_check, fmt_strike,
 )
 import backtest as bt
 
@@ -271,6 +271,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             lines.append(f"\n{pnl_emoji} Today's P&L: ₹{total_pnl:+.2f}")
         else:
             lines.append("\nNo exits/fills yet today.")
+        if account and account.open_positions:
+            lines.append("\n" + format_plan_check(account.open_positions, _live_price))
         return "\n".join(lines)
 
     def _handle_hold(arg: str) -> str:

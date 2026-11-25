@@ -74,6 +74,7 @@ jobs:
           path: |
             monitor.log
             paper_trades.csv
+            trade_results.csv
           if-no-files-found: ignore
           retention-days: 90
       - name: Tell me on Telegram if the run failed

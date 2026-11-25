@@ -106,7 +106,11 @@ WATCHLIST_MAX_PER_SCAN = 3       # cap how many watchlist alerts fire in a singl
 TARGET_PCT_T1 = 15.0               # book 40% of the position here
 TARGET_PCT_T2 = 30.0               # book another 30% here
 TARGET_PCT_T3 = 50.0               # let the last 30% run to here (or SL/time-exit)
-TARGET_ALLOCATIONS = [0.4, 0.3, 0.3]   # must sum to 1.0, matches T1/T2/T3
+TARGET_ALLOCATIONS = [1/3, 1/3, 1/3]   # must sum to 1.0, matches T1/T2/T3 (3 lots -> 1 lot at each target)
+LOTS_PER_TRADE = 3                 # every trade buys this many lots (None = size by the risk rule below).
+                                   # With 3 lots: sell 1 lot at T1 (stoploss on the rest moves to cost),
+                                   # sell 1 lot at T2 (stoploss moves to T1), sell the last lot at T3.
+TRAIL_SL_TO_T1_AFTER_T2 = True     # once Target 2 is hit, move the stoploss up to the Target 1 price
 
 TARGET_PCT = TARGET_PCT_T2         # kept for backward compatibility / backtest.py
 STOPLOSS_PCT = 18.0                # cut the whole remaining position at -18%
@@ -137,8 +141,9 @@ EOD_WARNING_MINUTES_BEFORE_CLOSE = 15
 # ---------------------------------------------------------------------------
 # PAPER TRADING
 # ---------------------------------------------------------------------------
-PAPER_STARTING_CAPITAL = 100000.0
+PAPER_STARTING_CAPITAL = 1000000.0   # 3 lots of an index option can cost ~Rs1.4 lakh each, so the paper account is Rs10 lakh
 PAPER_LOG_FILE = "paper_trades.csv"
+PAPER_RESULTS_FILE = "trade_results.csv"   # one row per CLOSED trade: result of the 3-lot scale-out vs "sell everything at T1"
 MOVE_SL_TO_COST_AFTER_T1 = True   # once Target 1 is reached, move the stoploss up to the
                                   # entry price ("cost-to-cost") so the rest of the trade
                                   # cannot turn into a big loss. Trade-off: a normal dip
