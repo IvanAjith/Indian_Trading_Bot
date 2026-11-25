@@ -182,7 +182,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         "last_scan_at": None, "alerted_today": set(), "last_signal_count": 0,
         "day_log": _fresh_day_log(), "watchlisted_today": set(),
         "eod_warned_today": set(), "last_snap_by_symbol": {},
-        "scans": 0, "symbols_scanned": 0, "closed_checked": not skip_if_closed,
+        "scans": 0, "symbols_scanned": 0, "suppressed_logged": set(), "closed_checked": not skip_if_closed,
         "watchlist_score_history": {},  # {(symbol, bias): last-seen score} -
                                         # used to only alert when a setup is
                                         # actually strengthening, not just
@@ -313,6 +313,34 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             price = leg.ltp
         account.manual_close(pos, price)
         return f"\U0001F44B Recorded {symbol} closed at ₹{price:.2f}. Freed up for new trades."
+
+    def _active_block_reason(symbol: str, option_type: str):
+        """Why a NEW alert for this underlying+direction must be suppressed, or None.
+        'open'    -> a trade in the same direction is still running (target/SL not finished)
+        'cooldown'-> one closed less than REENTRY_COOLDOWN_MIN minutes ago"""
+        if not account or not config.ONE_ACTIVE_PER_UNDERLYING:
+            return None
+        for p in account.open_positions:
+            if p.symbol != symbol or p.option_type != option_type:
+                continue
+            if p.status != "CLOSED":
+                return "open"
+            if config.REENTRY_COOLDOWN_MIN and p.fills:
+                try:
+                    last = dt.datetime.fromisoformat(p.fills[-1].at)
+                except ValueError:
+                    continue
+                if dt.datetime.now() - last < dt.timedelta(minutes=config.REENTRY_COOLDOWN_MIN):
+                    return "cooldown"
+        return None
+
+    def _opposite_open(symbol: str, option_type: str):
+        """Option type of a still-open trade in the OPPOSITE direction on this underlying, or None."""
+        if not account:
+            return None
+        other = "PE" if option_type == "CE" else "CE"
+        return other if any(p.symbol == symbol and p.option_type == other and p.status != "CLOSED"
+                            for p in account.open_positions) else None
 
     def _live_price(pos):
         snap = state["last_snap_by_symbol"].get(pos.symbol)
@@ -480,6 +508,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 state["eod_warned_today"] = set()
                 state["watchlist_score_history"] = {}
                 state["signaled_directions_today"] = set()
+                state["suppressed_logged"] = set()
                 state["day_log"] = _fresh_day_log()
                 if account:
                     # Holding is a same-day-only override - each new day starts
@@ -544,7 +573,10 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             state["symbols_scanned"] = len(snapshots)
             snap_by_symbol = {s.symbol: s for s in snapshots}
             state["last_snap_by_symbol"] = snap_by_symbol
-            ranked = rank_universe(snapshots)
+            # Rank ALL qualifying symbols (not just the top N): suppressed / already-alerted names must
+            # not use up the per-scan slots, or new symbols could never surface. The per-scan cap
+            # (TOP_N_SIGNALS_PER_DAY) is applied below, after filtering.
+            ranked = rank_universe(snapshots, top_n=10**6)
             state["last_scan_at"] = now
 
             # Lighter-weight heads-up alerts for setups building but not yet
@@ -568,6 +600,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 direction_key = (r.symbol, r.bias)
                 previous_score = score_history.get(direction_key)
                 score_history[direction_key] = r.score
+                if _active_block_reason(r.symbol, "CE" if r.bias == "BULLISH" else "PE"):
+                    continue  # a trade in this direction is already running / just closed - no heads-up
                 if previous_score is None or r.score <= previous_score:
                     continue  # flat, weakening, or no baseline yet - not worth alerting
                 key = (r.symbol, r.bias, today.isoformat())
@@ -600,12 +634,27 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
 
             new_ideas = []
             for r in ranked:
+                if len(new_ideas) >= config.TOP_N_SIGNALS_PER_DAY:
+                    break
+                option_type = "CE" if r.bias == "BULLISH" else "PE"
+                blocked = _active_block_reason(r.symbol, option_type)
+                if blocked:
+                    tag = (r.symbol, option_type, blocked, today.isoformat())
+                    if tag not in state["suppressed_logged"]:
+                        state["suppressed_logged"].add(tag)
+                        why = ("a trade is still open" if blocked == "open"
+                               else f"cooling down ({config.REENTRY_COOLDOWN_MIN} min after exit)")
+                        print(f"[monitor] {now:%H:%M} - no new {r.symbol} {option_type} alert: {why}.")
+                    continue
                 idea = build_trade_idea(snap_by_symbol[r.symbol], r)
                 if not idea:
                     continue
                 key = (idea.symbol, idea.option_type, idea.strike, idea.expiry, today.isoformat())
                 if key in state["alerted_today"]:
                     continue
+                opposite = _opposite_open(idea.symbol, idea.option_type)
+                if opposite:
+                    idea.reasons.insert(0, f"\U0001F501 REVERSAL: your open {idea.symbol} {opposite} is the opposite direction")
                 state["alerted_today"].add(key)
                 state["signaled_directions_today"].add((idea.symbol, idea.bias))
                 new_ideas.append(idea)

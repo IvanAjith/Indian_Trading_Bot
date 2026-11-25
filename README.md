@@ -51,7 +51,7 @@ Each symbol gets a 0-100 **score**:
 | Volume | 20% | Today's volume vs the 20-day average |
 | IV | 10% | Off by default (`FETCH_IV`), so effectively a constant |
 
-- Score **≥ 70** → full **buy signal** (call for bullish, put for bearish).
+- Score **≥ 70** → full **buy signal** (up to `TOP_N_SIGNALS_PER_DAY` = 5 new ones per scan, best first) (call for bullish, put for bearish).
 - Score **60-70 and rising** → one **👀 early heads-up** per stock per day.
 - Named triggers explain *why* it fired (20-day breakout/breakdown, support bounce/rejection, EMA trend,
   two confirming candles, volume spike, OI buildup).
@@ -62,6 +62,11 @@ Each symbol gets a 0-100 **score**:
 - **Stoploss:** −18% on the option price. **Targets:** +15% (T1), +30% (T2), +50% (T3); sell 40% / 30% / 30%.
 - **At Target 1:** you get an alert to **move your stoploss to cost (cost-to-cost)**; the paper account
   does the same.
+- **One active trade per stock/index and direction.** While a CE (or PE) trade on, say, NIFTY is still
+  running (target / stoploss not finished) the bot sends **no further NIFTY CE alert or heads-up** - even
+  if the strike has moved with the price. After it closes, there is a 30-minute cooldown
+  (`REENTRY_COOLDOWN_MIN`) before the same stock/direction can alert again. An *opposite* signal (a PE while
+  a CE is open) is still sent, marked **🔁 REVERSAL**.
 - **Every alert is paper-traded** (`PAPER_TRACK_ALL_SIGNALS`), so `/trades` and `paper_trades.csv` match
   your alerts one-to-one. No cap on open positions.
 - **Position size:** real NSE **lot size** from Angel One's contract list. Lots are chosen so the loss at
@@ -173,6 +178,7 @@ Optional visual backtest (approximate - uses daily candles and a fixed-delta pre
 | `MIN_SIGNAL_SCORE` / `WATCHLIST_MIN_SCORE` | 70 / 60 | How strict signals / heads-ups are |
 | `STOPLOSS_PCT`, `TARGET_PCT_T1/T2/T3` | 18, 15/30/50 | Stop and targets on the option price |
 | `MOVE_SL_TO_COST_AFTER_T1` | True | Move the stop to entry once T1 is reached |
+| `ONE_ACTIVE_PER_UNDERLYING`, `REENTRY_COOLDOWN_MIN` | True, 30 | No repeat alert on a stock/index+direction while its trade is open; wait N min after it closes |
 | `PAPER_TRACK_ALL_SIGNALS` | True | Paper-trade every alert (no position cap; oversize lots tracked as 1 lot) |
 | `MAX_CAPITAL_PER_TRADE_PCT`, `MAX_TRADES_PER_DAY` | 5, 3 | Risk per trade / max open positions (the cap applies only if tracking-all is False) |
 | `PAPER_SLIPPAGE_PCT`, `PAPER_STARTING_CAPITAL` | 1.0, 1,00,000 | Paper-trading realism |
