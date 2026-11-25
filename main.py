@@ -197,7 +197,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         "last_scan_at": None, "alerted_today": set(), "last_signal_count": 0,
         "day_log": _fresh_day_log(), "watchlisted_today": set(),
         "eod_warned_today": set(), "last_snap_by_symbol": {},
-        "scans": 0, "symbols_scanned": 0, "scan_secs": [], "suppressed_logged": set(), "closed_checked": not skip_if_closed,
+        "scans": 0, "symbols_scanned": 0, "scan_secs": [], "suppressed_logged": set(), "alerts_by_symbol": {}, "closed_checked": not skip_if_closed,
         "watchlist_score_history": {},  # {(symbol, bias): last-seen score} -
                                         # used to only alert when a setup is
                                         # actually strengthening, not just
@@ -329,27 +329,24 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         account.manual_close(pos, price)
         return f"\U0001F44B Recorded {symbol} closed at ₹{price:.2f}. Freed up for new trades."
 
-    def _active_block_reason(symbol: str, option_type: str = None):
-        """Why a NEW alert for this underlying must be suppressed, or None. Direction does NOT
-        matter: while a CE *or* PE trade on this stock/index is still running you get no further
-        alert (no panic-reversals); you wait for that trade's target or stoploss.
-        'open'     -> a trade on this underlying is still running
-        'cooldown' -> one closed less than REENTRY_COOLDOWN_MIN minutes ago"""
-        if not account or not config.ONE_ACTIVE_PER_UNDERLYING:
+    def _alert_block_reason(symbol: str, score: float = None, watch: bool = False):
+        """Why a NEW alert for this underlying must be suppressed, or None.
+        One alert per stock/index per day: once it has alerted (or you added a trade on it with /add),
+        nothing more comes for the rest of the day - regardless of how that trade ended (targets,
+        stoploss, or still open) and regardless of direction/strike - unless this new signal scores at
+        least REALERT_MIN_SCORE (and the daily exception allowance is not used up). Heads-up (watch)
+        messages are never sent for a symbol that already alerted."""
+        if not config.ONE_ALERT_PER_UNDERLYING_PER_DAY:
             return None
-        for p in account.open_positions:
-            if p.symbol != symbol:
-                continue
-            if p.status != "CLOSED":
-                return "open"
-            if config.REENTRY_COOLDOWN_MIN and p.fills:
-                try:
-                    last = dt.datetime.fromisoformat(p.fills[-1].at)
-                except ValueError:
-                    continue
-                if dt.datetime.now() - last < dt.timedelta(minutes=config.REENTRY_COOLDOWN_MIN):
-                    return "cooldown"
-        return None
+        count = state["alerts_by_symbol"].get(symbol, 0)
+        if account:
+            count = max(count, sum(1 for p in account.open_positions if p.symbol == symbol))
+        if count == 0:
+            return None
+        if (not watch and score is not None and score >= config.REALERT_MIN_SCORE
+                and count - 1 < config.REALERT_MAX_PER_DAY):
+            return None
+        return "already alerted today"
 
     def _live_price(pos):
         snap = state["last_snap_by_symbol"].get(pos.symbol)
@@ -390,7 +387,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             f"✅ <b>Tracking {symbol} {expiry} {fmt_strike(strike)} {option_type}</b>\n"
             f"Entry ₹{pos.entry:.2f} | {pos.lots_total} lot(s) x {lot_size}\n"
             f"SL ₹{pos.stoploss:.2f} | T1 ₹{pos.target1:.2f} T2 ₹{pos.target2:.2f} T3 ₹{pos.target3:.2f}\n"
-            f"I'll alert you on T1 / exits and no new {symbol} alerts will come while it is open."
+            f"I'll alert you on T1 / exits. No new {symbol} alerts today (unless a score of {config.REALERT_MIN_SCORE:.0f}+)."
         )
 
     def _handle_help(_arg: str = "") -> str:
@@ -557,6 +554,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 state["watchlist_score_history"] = {}
                 state["signaled_directions_today"] = set()
                 state["suppressed_logged"] = set()
+                state["alerts_by_symbol"] = {}
                 state["day_log"] = _fresh_day_log()
                 if account:
                     # Holding is a same-day-only override - each new day starts
@@ -658,8 +656,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 direction_key = (r.symbol, r.bias)
                 previous_score = score_history.get(direction_key)
                 score_history[direction_key] = r.score
-                if _active_block_reason(r.symbol, "CE" if r.bias == "BULLISH" else "PE"):
-                    continue  # a trade in this direction is already running / just closed - no heads-up
+                if _alert_block_reason(r.symbol, watch=True):
+                    continue  # this stock/index already alerted today - no heads-up
                 if previous_score is None or r.score <= previous_score:
                     continue  # flat, weakening, or no baseline yet - not worth alerting
                 key = (r.symbol, r.bias, today.isoformat())
@@ -704,14 +702,13 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 if len(new_ideas) >= config.TOP_N_SIGNALS_PER_DAY:
                     break
                 option_type = "CE" if r.bias == "BULLISH" else "PE"
-                blocked = _active_block_reason(r.symbol, option_type)
+                blocked = _alert_block_reason(r.symbol, r.score)
                 if blocked:
-                    tag = (r.symbol, option_type, blocked, today.isoformat())
+                    tag = (r.symbol, blocked, today.isoformat())
                     if tag not in state["suppressed_logged"]:
                         state["suppressed_logged"].add(tag)
-                        why = ("a trade is still open" if blocked == "open"
-                               else f"cooling down ({config.REENTRY_COOLDOWN_MIN} min after exit)")
-                        print(f"[monitor] {now:%H:%M} - no new {r.symbol} {option_type} alert: {why}.")
+                        print(f"[monitor] {now:%H:%M} - no new {r.symbol} alert: {blocked} "
+                              f"(only a score of {config.REALERT_MIN_SCORE:.0f}+ can repeat).")
                     continue
                 idea = build_trade_idea(snap_by_symbol[r.symbol], r)
                 if not idea:
@@ -720,6 +717,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 if key in state["alerted_today"]:
                     continue
                 state["alerted_today"].add(key)
+                state["alerts_by_symbol"][idea.symbol] = state["alerts_by_symbol"].get(idea.symbol, 0) + 1
                 state["signaled_directions_today"].add((idea.symbol, idea.bias))
                 new_ideas.append(idea)
             state["last_signal_count"] = len(new_ideas)

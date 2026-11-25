@@ -113,13 +113,12 @@ STOPLOSS_PCT = 18.0                # cut the whole remaining position at -18%
 MAX_CAPITAL_PER_TRADE_PCT = 5.0    # % of paper/live capital risked per trade
 MAX_TRADES_PER_DAY = 3             # max open paper positions at once (ignored while
                                    # PAPER_TRACK_ALL_SIGNALS is True)
-ONE_ACTIVE_PER_UNDERLYING = True   # while a trade on a stock/index is still open (target / stoploss not
-                                   # finished), send NO other alert on that underlying - same direction OR
-                                   # the opposite one (no panic-reversals), at any strike. Needs --paper
-                                   # (open positions are tracked there).
-REENTRY_COOLDOWN_MIN = 30          # after that trade closes, wait this many minutes before alerting the
-                                   # same underlying again (0 = no wait). Avoids instantly re-buying right
-                                   # after a stoploss.
+ONE_ALERT_PER_UNDERLYING_PER_DAY = True   # once a stock/index has produced an entry alert today, send NO
+                                   # further alert or watch message on it for the rest of the day - whether
+                                   # that trade hit its targets, hit the stoploss, or is still open; CE or PE,
+                                   # any strike. (Trades you add with /add count as that stock's alert.)
+REALERT_MIN_SCORE = 90.0           # ...unless a new signal on it scores at least this much (exceptional)
+REALERT_MAX_PER_DAY = 1            # at most this many such exceptional extra alerts per stock/index per day
 PAPER_TRACK_ALL_SIGNALS = True     # paper-trade EVERY alert the bot sends, so paper_trades.csv
                                    # and /trades match your alerts one-to-one. No cap on open
                                    # positions, and if one lot is bigger than the 5%-risk rule
