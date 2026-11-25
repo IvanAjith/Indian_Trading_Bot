@@ -70,6 +70,7 @@ class PaperPosition:
     win_probability: float = 0.0
     reasons: list = field(default_factory=list)
     lot_size: int = 1
+    oversize: bool = False       # tracked as 1 lot although it breaks the max-loss rule
     t1_alerted: bool = False    # True once the "Target 1 reached" alert has been sent
 
     def __post_init__(self):
@@ -126,6 +127,11 @@ class PaperTradingAccount:
 
     def open_trade(self, idea: TradeIdea, lots: int = None) -> PaperPosition:
         lots = lots if lots is not None else position_size(self.capital, idea.entry, idea.lot_size)
+        oversize = False
+        if lots <= 0 and config.PAPER_TRACK_ALL_SIGNALS:
+            lots, oversize = 1, True
+            print(f"[paper] {idea.symbol} {idea.strike:.0f} {idea.option_type}: one lot is above the "
+                  f"{config.MAX_CAPITAL_PER_TRADE_PCT}% risk rule - tracking it as 1 lot anyway (oversize).")
         if lots <= 0:
             print(f"[paper] skipped {idea.symbol} {idea.strike:.0f} {idea.option_type}: one lot "
                   f"({idea.lot_size} units x Rs{idea.entry:.2f}) is too big for the "
@@ -150,6 +156,7 @@ class PaperTradingAccount:
             win_probability=idea.win_probability,
             reasons=list(idea.reasons) if idea.reasons else [],
             lot_size=idea.lot_size,
+            oversize=oversize,
         )
         self.open_positions.append(pos)
         return pos

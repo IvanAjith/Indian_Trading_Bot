@@ -101,7 +101,7 @@ def run_watchlist(provider):
 def run_paper(provider):
     account = PaperTradingAccount()
     ideas = run_watchlist(provider)
-    for idea in ideas[:config.MAX_TRADES_PER_DAY]:
+    for idea in (ideas if config.PAPER_TRACK_ALL_SIGNALS else ideas[:config.MAX_TRADES_PER_DAY]):
         pos = account.open_trade(idea)
         if pos is None:
             continue
@@ -182,7 +182,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         "last_scan_at": None, "alerted_today": set(), "last_signal_count": 0,
         "day_log": _fresh_day_log(), "watchlisted_today": set(),
         "eod_warned_today": set(), "last_snap_by_symbol": {},
-        "scans": 0, "symbols_scanned": 0, "closed_checked": not skip_if_closed,
+        "scans": 0, "symbols_scanned": 0, "suppressed_logged": set(), "closed_checked": not skip_if_closed,
         "watchlist_score_history": {},  # {(symbol, bias): last-seen score} -
                                         # used to only alert when a setup is
                                         # actually strengthening, not just
@@ -314,6 +314,28 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         account.manual_close(pos, price)
         return f"\U0001F44B Recorded {symbol} closed at ₹{price:.2f}. Freed up for new trades."
 
+    def _active_block_reason(symbol: str, option_type: str = None):
+        """Why a NEW alert for this underlying must be suppressed, or None. Direction does NOT
+        matter: while a CE *or* PE trade on this stock/index is still running you get no further
+        alert (no panic-reversals); you wait for that trade's target or stoploss.
+        'open'     -> a trade on this underlying is still running
+        'cooldown' -> one closed less than REENTRY_COOLDOWN_MIN minutes ago"""
+        if not account or not config.ONE_ACTIVE_PER_UNDERLYING:
+            return None
+        for p in account.open_positions:
+            if p.symbol != symbol:
+                continue
+            if p.status != "CLOSED":
+                return "open"
+            if config.REENTRY_COOLDOWN_MIN and p.fills:
+                try:
+                    last = dt.datetime.fromisoformat(p.fills[-1].at)
+                except ValueError:
+                    continue
+                if dt.datetime.now() - last < dt.timedelta(minutes=config.REENTRY_COOLDOWN_MIN):
+                    return "cooldown"
+        return None
+
     def _live_price(pos):
         snap = state["last_snap_by_symbol"].get(pos.symbol)
         leg = next((q for q in snap.option_chain
@@ -335,10 +357,15 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
     def _handle_trades(_arg: str = "") -> str:
         if not account:
             return "Paper trading isn't enabled for this run, so there are no trades to show."
-        open_positions = [p for p in account.open_positions if p.status != "CLOSED"]
-        if not open_positions:
-            return "No open paper trades right now."
-        lines = [f"\U0001F4C2 <b>Open paper trades ({len(open_positions)})</b>"]
+        everything = account.open_positions
+        open_positions = [p for p in everything if p.status != "CLOSED"]
+        closed = [p for p in everything if p.status == "CLOSED"]
+        if not everything:
+            return "No paper trades yet today."
+        lines = [f"\U0001F4C2 <b>Paper trades today: {len(everything)}</b>  "
+                 f"({len(open_positions)} open, {len(closed)} closed)"]
+        if open_positions:
+            lines.append("\n<b>OPEN</b>")
         for p in open_positions:
             price = _live_price(p)
             if price is not None:
@@ -347,13 +374,24 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             else:
                 now_txt = "Now: no fresh price"
             booked = ", ".join(sorted(p.booked_levels)) or "none"
+            flag = " ⚠️oversize" if p.oversize else ""
             lines.append(
-                f"\n<b>{p.symbol} {p.strike:.0f} {p.option_type}</b>  {p.lots_remaining}/{p.lots_total} lots\n"
+                f"\n<b>{p.symbol} {p.strike:.0f} {p.option_type}</b>  {p.lots_remaining}/{p.lots_total} lots{flag}\n"
                 f"Entry ₹{p.entry:.2f} | {now_txt}\n"
-                f"SL ₹{p.stoploss:.2f} | T1 ₹{p.target1:.2f} T2 ₹{p.target2:.2f} T3 ₹{p.target3:.2f}\n"
-                f"Targets booked: {booked}"
+                f"SL ₹{p.stoploss:.2f} | T1 ₹{p.target1:.2f} T2 ₹{p.target2:.2f} T3 ₹{p.target3:.2f}"
+                f" | booked: {booked}"
             )
-        return "\n".join(lines)
+        if closed:
+            lines.append("\n<b>CLOSED</b>")
+        for p in closed:
+            pnl = sum(f.pnl for f in p.fills)
+            how = "/".join(dict.fromkeys(f.level for f in p.fills)) or "-"
+            lines.append(f"{'✅' if pnl >= 0 else '❌'} {p.symbol} {p.strike:.0f} {p.option_type}  "
+                         f"{how}  ₹{pnl:+.2f}")
+        text = "\n".join(lines)
+        if len(text) > 3800:   # Telegram caps a message at 4096 characters
+            text = text[:3800].rsplit("\n", 1)[0] + "\n... (more trades not shown - see paper_trades.csv)"
+        return text
 
     def _handle_pnl(_arg: str = "") -> str:
         if not account:
@@ -464,6 +502,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 state["eod_warned_today"] = set()
                 state["watchlist_score_history"] = {}
                 state["signaled_directions_today"] = set()
+                state["suppressed_logged"] = set()
                 state["day_log"] = _fresh_day_log()
                 if account:
                     # Holding is a same-day-only override - each new day starts
@@ -528,7 +567,10 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             state["symbols_scanned"] = len(snapshots)
             snap_by_symbol = {s.symbol: s for s in snapshots}
             state["last_snap_by_symbol"] = snap_by_symbol
-            ranked = rank_universe(snapshots)
+            # Rank ALL qualifying symbols (not just the top N): suppressed / already-alerted names must
+            # not use up the per-scan slots, or new symbols could never surface. The per-scan cap
+            # (TOP_N_SIGNALS_PER_DAY) is applied below, after filtering.
+            ranked = rank_universe(snapshots, top_n=10**6)
             state["last_scan_at"] = now
 
             # Lighter-weight heads-up alerts for setups building but not yet
@@ -552,6 +594,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 direction_key = (r.symbol, r.bias)
                 previous_score = score_history.get(direction_key)
                 score_history[direction_key] = r.score
+                if _active_block_reason(r.symbol, "CE" if r.bias == "BULLISH" else "PE"):
+                    continue  # a trade in this direction is already running / just closed - no heads-up
                 if previous_score is None or r.score <= previous_score:
                     continue  # flat, weakening, or no baseline yet - not worth alerting
                 key = (r.symbol, r.bias, today.isoformat())
@@ -584,6 +628,18 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
 
             new_ideas = []
             for r in ranked:
+                if len(new_ideas) >= config.TOP_N_SIGNALS_PER_DAY:
+                    break
+                option_type = "CE" if r.bias == "BULLISH" else "PE"
+                blocked = _active_block_reason(r.symbol, option_type)
+                if blocked:
+                    tag = (r.symbol, option_type, blocked, today.isoformat())
+                    if tag not in state["suppressed_logged"]:
+                        state["suppressed_logged"].add(tag)
+                        why = ("a trade is still open" if blocked == "open"
+                               else f"cooling down ({config.REENTRY_COOLDOWN_MIN} min after exit)")
+                        print(f"[monitor] {now:%H:%M} - no new {r.symbol} {option_type} alert: {why}.")
+                    continue
                 idea = build_trade_idea(snap_by_symbol[r.symbol], r)
                 if not idea:
                     continue
@@ -616,7 +672,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 if account:
                     open_count = len([p for p in account.open_positions if p.status != "CLOSED"])
                     room = max(config.MAX_TRADES_PER_DAY - open_count, 0)
-                    for idea in new_ideas[:room]:
+                    to_open = new_ideas if config.PAPER_TRACK_ALL_SIGNALS else new_ideas[:room]
+                    for idea in to_open:
                         pos = account.open_trade(idea)
                         if pos is None:
                             continue
