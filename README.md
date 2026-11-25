@@ -51,7 +51,13 @@ Each symbol gets a 0-100 **score**:
 | Volume | 20% | Today's volume vs the 20-day average |
 | IV | 10% | Off by default (`FETCH_IV`), so effectively a constant |
 
-- Score **≥ 70** → full **buy signal** (up to `TOP_N_SIGNALS_PER_DAY` = 5 new ones per scan, best first) (call for bullish, put for bearish).
+- Score **≥ 70** → full **buy signal** (call for bullish, put for bearish), best score first, with three limits:
+  - **Budget:** signals whose contract costs more than **₹35,000 for one lot** (`MAX_COST_PER_LOT`) are skipped, so
+    every alert is something a ₹1 lakh account can take (about 3 trades at once). Skipped ones are counted in the
+    daily summary. Index options like BANKNIFTY/FINNIFTY usually fall out; NIFTY stays.
+  - **At most 2 new alerts per scan** (`MAX_ALERTS_PER_SCAN`) - no more opening burst.
+  - **At most 6 entry alerts per day** (`MAX_ALERTS_PER_DAY`); you get one "daily limit reached" message and no more
+    alerts or heads-ups after that (your open trades keep being tracked).
 - Score **60-70 and rising** → one **👀 early heads-up** per stock per day.
 - Named triggers explain *why* it fired (20-day breakout/breakdown, support bounce/rejection, EMA trend,
   two confirming candles, volume spike, OI buildup).
@@ -241,7 +247,8 @@ Optional visual backtest (approximate - uses daily candles and a fixed-delta pre
 
 | Setting | Default | What it does |
 |---|---|---|
-| `MIN_SIGNAL_SCORE` / `WATCHLIST_MIN_SCORE` | 70 / 60 | How strict signals / heads-ups are |
+| `MIN_SIGNAL_SCORE` / `WATCHLIST_MIN_SCORE` | 70 / 60 | How strict signals / heads-ups are (keep 70 for 7-10 days, then pick a threshold from `trade_results.csv` by score band) |
+| `MAX_COST_PER_LOT`, `MAX_ALERTS_PER_SCAN`, `MAX_ALERTS_PER_DAY` | 35,000, 2, 6 | Budget filter (cost of 1 lot) and alert limits |
 | `STOPLOSS_PCT`, `TARGET_PCT_T1/T2/T3` | 18, 15/30/50 | Stop and targets on the option price |
 | `LOTS_PER_TRADE` | 3 | Lots bought per trade (1 sold at each target); `None` = size by the risk rule |
 | `MOVE_SL_TO_COST_AFTER_T1`, `TRAIL_SL_TO_T1_AFTER_T2` | True, True | Stop to cost after T1; stop to the T1 price after T2 |
