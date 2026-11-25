@@ -178,6 +178,9 @@ def _money(x: float) -> str:
     return f"{'+' if x > 0 else '-'}₹{abs(x):,.2f}"
 
 
+money = _money
+
+
 def format_plan_check(positions: list, live_price) -> str:
     """Compares the two ways of playing the SAME trades: the 3-lot scale-out (what the bot does) vs selling
     every lot as soon as Target 1 is reached. Trades that never reached T1 are identical in both."""
@@ -334,6 +337,22 @@ def format_eod_check_message(pos, current_ltp: float) -> str:
     )
 
 
+def _chunks(text: str, limit: int = 3900) -> list:
+    """Split a long message at line boundaries (Telegram allows 4096 characters per message)."""
+    if len(text) <= limit:
+        return [text]
+    parts, cur = [], ""
+    for line in text.split("\n"):
+        if cur and len(cur) + len(line) + 1 > limit:
+            parts.append(cur)
+            cur = line
+        else:
+            cur = f"{cur}\n{line}" if cur else line
+    if cur:
+        parts.append(cur)
+    return parts
+
+
 def send_telegram_message(text: str) -> bool:
     token, chat_id = _get_credentials()
     if not token or not chat_id:
@@ -341,17 +360,19 @@ def send_telegram_message(text: str) -> bool:
               "See README.md 'Telegram alerts'.")
         return False
     url = f"https://api.telegram.org/bot{token}/sendMessage"
-    try:
-        resp = requests.post(url, data={
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "HTML",
-        }, timeout=10)
-        resp.raise_for_status()
-        return True
-    except Exception as exc:
-        print(f"[telegram] send failed: {exc}")
-        return False
+    ok = True
+    for part in _chunks(text):
+        try:
+            resp = requests.post(url, data={
+                "chat_id": chat_id,
+                "text": part,
+                "parse_mode": "HTML",
+            }, timeout=10)
+            resp.raise_for_status()
+        except Exception as exc:
+            print(f"[telegram] send failed: {exc}")
+            ok = False
+    return ok
 
 
 def poll_status_requests(offset, providers: dict) -> int:
