@@ -47,6 +47,11 @@ def _format_expiry_short(expiry: str) -> str:
     return expiry  # unrecognized format - show as-is rather than crash
 
 
+def fmt_strike(strike: float) -> str:
+    """307.5 -> '307.5', 25800.0 -> '25800' (never round a half-rupee strike to a whole number)."""
+    return f"{strike:.2f}".rstrip("0").rstrip(".")
+
+
 def _now_str() -> str:
     return dt.datetime.now().strftime("%I:%M %p").lstrip("0")
 
@@ -56,7 +61,7 @@ def format_signal_message(idea) -> str:
     reasons = "; ".join(idea.reasons) if idea.reasons else "momentum setup"
     return (
         f"\U0001F6A8\U0001F6A8 <b>ENTRY ALERT - BUY NOW</b> \U0001F6A8\U0001F6A8\n"
-        f"\U0001F7E2 BUY {idea.symbol} {expiry_short} {idea.strike:.0f} {idea.option_type} "
+        f"\U0001F7E2 BUY {idea.symbol} {expiry_short} {fmt_strike(idea.strike)} {idea.option_type} "
         f"at ₹{idea.entry:.2f}\n"
         f"⏰ {_now_str()}\n\n"
         f"\U0001F3AF Target 1: ₹{idea.target1:.2f}\n"
@@ -97,7 +102,7 @@ def format_exit_message(position, level: str, lots: int, price: float) -> str:
     )
     return (
         f"\U0001F51A <b>Exit Options Trade</b>\n"
-        f"\U0001F534 SELL {position.symbol} {expiry_short} {position.strike:.0f} {position.option_type} "
+        f"\U0001F534 SELL {position.symbol} {expiry_short} {fmt_strike(position.strike)} {position.option_type} "
         f"at ₹{price:.2f} ({reason})\n"
         f"⏰ {_now_str()}\n"
         f"{pnl_emoji} P&L this fill: ₹{pnl:+.2f}\n"
@@ -117,7 +122,7 @@ def format_t1_message(position, price: float) -> str:
     )
     return (
         f"\U0001F3AF <b>Target 1 reached</b>\n"
-        f"{position.symbol} {expiry_short} {position.strike:.0f} {position.option_type}\n"
+        f"{position.symbol} {expiry_short} {fmt_strike(position.strike)} {position.option_type}\n"
         f"⏰ {_now_str()}\n\n"
         f"Price ₹{price:.2f} ({gain_pct:+.0f}% from entry ₹{position.entry:.2f})\n\n"
         f"{sl_line}"
@@ -153,7 +158,7 @@ def format_trades_summary(positions: list, live_price) -> str:
             status = "waiting for T1"
         flag = " ⚠️oversize" if p.oversize else ""
         lines.append(
-            f"\n<b>{p.symbol} {p.strike:.0f} {p.option_type}</b>  {p.lots_remaining}/{p.lots_total} lots{flag}\n"
+            f"\n<b>{p.symbol} {fmt_strike(p.strike)} {p.option_type}</b>  {p.lots_remaining}/{p.lots_total} lots{flag}\n"
             f"Entry ₹{p.entry:.2f} | {now_txt}\n"
             f"SL ₹{p.stoploss:.2f} | T1 ₹{p.target1:.2f} T2 ₹{p.target2:.2f} T3 ₹{p.target3:.2f}\n"
             f"{status}"
@@ -163,7 +168,7 @@ def format_trades_summary(positions: list, live_price) -> str:
     for p in closed:
         pnl = sum(f.pnl for f in p.fills)
         how = "/".join(dict.fromkeys(f.level for f in p.fills)) or "-"
-        lines.append(f"{'✅' if pnl >= 0 else '❌'} {p.symbol} {p.strike:.0f} {p.option_type}  {how}  ₹{pnl:+.2f}")
+        lines.append(f"{'✅' if pnl >= 0 else '❌'} {p.symbol} {fmt_strike(p.strike)} {p.option_type}  {how}  ₹{pnl:+.2f}")
     text = "\n".join(lines)
     if len(text) > 3800:   # Telegram caps a message at 4096 characters
         text = text[:3800].rsplit("\n", 1)[0] + "\n... (more trades not shown - see paper_trades.csv)"
@@ -196,7 +201,7 @@ def format_eod_check_message(pos, current_ltp: float) -> str:
     pnl_emoji = "\U0001F4B0" if pnl_if_closed >= 0 else "\U0001F4B8"
     return (
         f"⏳ <b>End-of-day check-in</b>\n"
-        f"{pos.symbol} {expiry_short} {pos.strike:.0f} {pos.option_type} - still open "
+        f"{pos.symbol} {expiry_short} {fmt_strike(pos.strike)} {pos.option_type} - still open "
         f"({pos.lots_remaining} lot(s))\n"
         f"⏰ {_now_str()}\n\n"
         f"Entry: ₹{pos.entry:.2f}  |  Current: ₹{current_ltp:.2f}\n"

@@ -40,7 +40,9 @@ indices, via diagnose_angelone.py AND a full `main.py --mode watchlist
 import os
 import json
 import time
+import threading
 import datetime as dt
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import requests
@@ -78,6 +80,17 @@ _RATE_LIMIT_MARKERS = ("exceeding access rate", "too many requests", "ab1021", "
 
 _last_call_at = [0.0]  # mutable single-item list so the module-level throttle persists
 
+# Diagnostics shown in the end-of-day summary: how many API calls were made and how many were
+# slowed by Angel One's rate limit (each such hit costs a 2/5/10 s backoff).
+STATS = {"calls": 0, "rate_limit_retries": 0}
+
+# Historical candles may be fetched a few at a time (Angel One allows ~3/second): CANDLE_WORKERS
+# requests in flight, with at least CANDLE_MIN_GAP seconds between request starts.
+CANDLE_WORKERS = 3
+CANDLE_MIN_GAP = 0.4
+_candle_gate = threading.Lock()
+_last_candle_at = [0.0]
+
 
 def _throttled_call(fn, *args, **kwargs):
     """Wraps any SmartApi method call with a minimum gap since the last call,
@@ -91,6 +104,7 @@ def _throttled_call(fn, *args, **kwargs):
         if delay:
             time.sleep(delay)
         try:
+            STATS["calls"] += 1
             result = fn(*args, **kwargs)
             _last_call_at[0] = time.time()
             return result
@@ -99,6 +113,29 @@ def _throttled_call(fn, *args, **kwargs):
             _last_call_at[0] = time.time()
             if not any(marker in str(exc).lower() for marker in _RATE_LIMIT_MARKERS):
                 raise  # not a rate-limit issue - don't waste time retrying
+            STATS["rate_limit_retries"] += 1
+    raise last_exc
+
+
+def _throttled_candle_call(fn, *args, **kwargs):
+    """Like _throttled_call but safe to use from several threads at once (candle downloads only)."""
+    last_exc = None
+    for attempt, delay in enumerate([0] + RATE_LIMIT_RETRY_DELAYS):
+        if delay:
+            time.sleep(delay)
+        with _candle_gate:   # only spaces out request STARTS; the calls themselves overlap
+            wait = CANDLE_MIN_GAP - (time.time() - _last_candle_at[0])
+            if wait > 0:
+                time.sleep(wait)
+            _last_candle_at[0] = time.time()
+        try:
+            STATS["calls"] += 1
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            last_exc = exc
+            if not any(marker in str(exc).lower() for marker in _RATE_LIMIT_MARKERS):
+                raise
+            STATS["rate_limit_retries"] += 1
     raise last_exc
 
 
@@ -249,7 +286,7 @@ class AngelOneDataProvider:
             "fromdate": from_date.strftime("%Y-%m-%d 09:00"),
             "todate": to_date.strftime("%Y-%m-%d 15:30"),
         }
-        resp = _throttled_call(self.smart_api.getCandleData, params)
+        resp = _throttled_candle_call(self.smart_api.getCandleData, params)
         candles = resp.get("data", []) if resp else []
         rows = []
         for c in candles:
@@ -406,30 +443,43 @@ class AngelOneDataProvider:
         rows = self._market_data("NFO", [i["token"] for i in near_atm])
         return self._quotes_from_rows(symbol, nearest_expiry, near_atm, rows)
 
-    def _find_contract(self, symbol: str, strike: float, option_type: str, expiry: str = None):
-        """Instrument for one specific option (nearest live expiry if expiry is None), or None."""
+    def _find_contract(self, symbol: str, strike: float, option_type: str, expiry: str = None,
+                       tol: float = 1e-6):
+        """Instrument for one option: closest strike within `tol` (exact by default), on the given
+        expiry or else the nearest live expiry. None if there is no such contract."""
         today = dt.date.today()
-        best = None
+        best = None   # (strike difference, expiry date, instrument)
         for t in ("OPTIDX", "OPTSTK"):
             for i in self._opt_index.get((t, symbol.upper()), []):
-                if not i["symbol"].endswith(option_type) or abs(float(i["strike"]) / 100 - strike) > 1e-6:
+                if not i["symbol"].endswith(option_type):
+                    continue
+                diff = abs(float(i["strike"]) / 100 - strike)
+                if diff > tol:
                     continue
                 if expiry is not None:
-                    if i.get("expiry") == expiry:
-                        return i
-                    continue
-                try:
-                    e = self._parse_expiry(i["expiry"])
-                except Exception:
-                    continue
-                if e >= today and (best is None or e < best[0]):
-                    best = (e, i)
-        return best[1] if best else None
+                    if i.get("expiry") != expiry:
+                        continue
+                    e = today
+                else:
+                    try:
+                        e = self._parse_expiry(i["expiry"])
+                    except Exception:
+                        continue
+                    if e < today:
+                        continue
+                if best is None or (round(diff, 6), e) < (round(best[0], 6), best[1]):
+                    best = (diff, e, i)
+        return best[2] if best else None
 
     def contract_info(self, symbol: str, strike: float, option_type: str):
-        """(expiry, lot_size) of the nearest-expiry contract, from the instrument master (no API call)."""
-        inst = self._find_contract(symbol, strike, option_type)
-        return (inst["expiry"], int(float(inst.get("lotsize", 1) or 1))) if inst else None
+        """(expiry, lot_size, actual_strike) of the nearest-expiry contract, from the instrument master
+        (no API call). A strike typed as a rounded number still matches (alerts used to show 307.5 as
+        '308'): the closest strike within 0.5 is used."""
+        inst = (self._find_contract(symbol, strike, option_type)
+                or self._find_contract(symbol, strike, option_type, tol=0.51))
+        if not inst:
+            return None
+        return inst["expiry"], int(float(inst.get("lotsize", 1) or 1)), float(inst["strike"]) / 100
 
     # -- universe --------------------------------------------------------
     def get_universe(self) -> list:
@@ -508,6 +558,28 @@ class AngelOneDataProvider:
             print(f"[angelone] could not check whether the market traded today: {exc}")
             return None
 
+    def _prefetch_histories(self, jobs: list):
+        """Download daily history for many symbols a few at a time (jobs = [(exchange, token), ...]).
+        Failures are ignored here - the normal per-symbol path retries and reports them."""
+        todo = [(ex, tok) for ex, tok in dict.fromkeys(jobs)
+                if not ((c := self._history_cache.get((ex, tok))) and
+                        time.time() - c[0] < self._history_cache_max_age)]
+        if not todo:
+            return
+        def one(job):
+            try:
+                self._get_historical_daily(*job)
+            except Exception:
+                pass
+        started = time.time()
+        with ThreadPoolExecutor(max_workers=CANDLE_WORKERS) as pool:
+            list(pool.map(one, todo))
+        print(f"[angelone] loaded history for {len(todo)} symbols in {time.time() - started:.0f}s")
+
+    @property
+    def stats(self) -> dict:
+        return dict(STATS)
+
     # -- snapshots ---------------------------------------------------------
     def get_snapshots(self, universe: list) -> list:
         """Fast path: builds snapshots for the whole universe using batched
@@ -550,6 +622,7 @@ class AngelOneDataProvider:
             all_tokens.extend(i["token"] for i in near + held)
 
         option_rows = self._market_data("NFO", list(dict.fromkeys(all_tokens)))
+        self._prefetch_histories([("NSE", inst["token"]) for _, inst, *_ in plan])
 
         snapshots = []
         for sym, inst, spot, nearest, near, held in plan:
