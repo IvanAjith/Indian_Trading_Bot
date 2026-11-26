@@ -27,6 +27,7 @@ one at a time ("build item 4.2"). Keep one change per release, so results stay c
 | Paper fills | 1% slippage each side; charges not deducted (summaries say "before brokerage and taxes"). |
 | End of day | Summary shows each trade, day total (capital invested → returned → profit/loss), Plan A (full plan) vs Plan B (1 lot sold at T1), peak capital, silent-tracking line. |
 | Journal | Every closed trade is written up and saved on the `journal-data` branch; Friday 17:00 IST weekly review → Telegram. It **recommends**; a person approves. |
+| Open-trade checks | Between full scans the bot re-prices open trades every 20 s (`QUICK_CHECK_SECONDS`, one small quote call), so T1/T2/T3/stoploss messages arrive within ~20-30 s instead of after a whole scan (added 26 Nov 2026 after a late T1 message). |
 | Strikes | At-the-money for now. Not included: SENSEX, MIDCPNIFTY, commodities. |
 
 **Freeze:** keep these settings unchanged for **2-3 weeks from 26 Nov 2026** so the data is comparable.

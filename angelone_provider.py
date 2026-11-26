@@ -92,9 +92,17 @@ _candle_gate = threading.Lock()
 _last_candle_at = [0.0]
 
 
+_call_lock = threading.RLock()   # the scan thread and the fast open-trade price check share this
+
+
 def _throttled_call(fn, *args, **kwargs):
     """Wraps any SmartApi method call with a minimum gap since the last call,
-    plus retry-with-backoff specifically for rate-limit errors."""
+    plus retry-with-backoff specifically for rate-limit errors. One call at a time."""
+    with _call_lock:
+        return _throttled_call_locked(fn, *args, **kwargs)
+
+
+def _throttled_call_locked(fn, *args, **kwargs):
     elapsed = time.time() - _last_call_at[0]
     if elapsed < MIN_SECONDS_BETWEEN_CALLS:
         time.sleep(MIN_SECONDS_BETWEEN_CALLS - elapsed)
@@ -269,6 +277,28 @@ class AngelOneDataProvider:
                 continue
             for row in (resp.get("data", {}).get("fetched", []) if resp else []):
                 out[str(row.get("symbolToken"))] = row
+        return out
+
+    def quick_prices(self, contracts) -> dict:
+        """Fast price check for contracts we hold: {(symbol, strike, option_type, expiry): ltp}.
+        One batched quote call, no history and no option chain, so it takes about a second. Used
+        between full scans so targets/stoploss are noticed within seconds, not scan-minutes."""
+        cache = self.__dict__.setdefault("_quick_inst", {})
+        wanted = {}
+        for key in contracts:
+            if key not in cache:
+                hs, hk, ht, he = key
+                cache[key] = self._find_contract(hs, hk, ht, he)
+            if cache[key]:
+                wanted[key] = str(cache[key]["token"])
+        if not wanted:
+            return {}
+        rows = self._market_data("NFO", list(dict.fromkeys(wanted.values())))
+        out = {}
+        for key, token in wanted.items():
+            row = rows.get(token)
+            if row and row.get("ltp"):
+                out[key] = float(row["ltp"])
         return out
 
     def _get_historical_daily(self, exchange: str, token: str, days: int = 60) -> pd.DataFrame:

@@ -199,6 +199,7 @@ MARKET_CLOSE_TIME = "15:30"
 import os as _os
 MONITOR_INTERVAL_SECONDS = int(_os.environ.get("TB_SCAN_INTERVAL", 180))   # env var overrides (GitHub Actions uses 30) # 3 min between scans - tune against your
                                  # broker's rate limits if you widen the universe
+QUICK_CHECK_SECONDS = 20   # between full scans, re-price OPEN trades this often (targets/stoploss alerts within ~20s)
 STATUS_POLL_INTERVAL_SECONDS = 15   # how often to check Telegram for a "status" ping
 
 # ---------------------------------------------------------------------------
