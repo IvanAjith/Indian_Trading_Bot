@@ -100,7 +100,8 @@ Each symbol gets a 0-100 **score**:
     must be at a **different strike** from every profitable call that day; after a **loss** the same strike is allowed. CE and PE alike.
   A name that has alerted gets no heads-up. Trades you register with `/add` count as that symbol's alert.
 - **Reasoned strike choice.** If the at-the-money contract costs more than ₹35,000 per lot, or a repeat call must
-  avoid an earlier strike, the bot looks along the option chain (ATM ±3 strikes) and picks a strike by reasons:
+  avoid an earlier strike, the bot looks along the option chain - **at most 2 strikes from ATM** (`STRIKE_MAX_STEPS`), and the contract's
+  delta must stay at least 60% of ATM's (`STRIKE_MIN_DELTA_VS_ATM`), so it never drifts far just to get under the budget - and picks a strike by reasons:
   cost within budget, delta (estimated from neighbouring strikes) at least 0.25, the move needed for Target 1 a
   realistic share of the usual daily range, enough volume and open interest, and no big opposing open-interest wall
   in the way; of what passes, the strike closest to the money. **At-the-money is always tried first.** If it costs more than the
@@ -327,6 +328,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `MOVE_SL_TO_COST_AFTER_T1`, `TRAIL_SL_TO_T1_AFTER_T2` | True, True | Stop to cost after T1; for index trades, stop to the T1 price after T2 |
 | `ONE_ALERT_PER_UNDERLYING_PER_DAY`, `REALERT_MIN_SCORE`, `REALERT_MAX_PER_DAY`, `REALERT_MIN_SCORE_INDEX`, `REALERT_GAP_MINUTES_INDEX`, `REALERT_MAX_PER_DAY_INDEX` | True, 80, 0, None, 30, 3 | Repeat alerts on the same stock/index: earlier call closed, score above 80, different strike after a profit (same strike allowed after a loss), no daily limit |
 | `VOLUME_TIME_ADJUST`, `VOLUME_DAY_PROFILE` | False | Compare volume with the usual volume by this time of day (off: plain 20-day average) |
+| `STRIKE_MAX_STEPS`, `STRIKE_MIN_DELTA_VS_ATM` | 2, 0.6 | Reasoned strike never more than 2 strikes from ATM and keeps at least 60% of ATM's delta; if nothing passes the signal is skipped |
 | `CHEAPER_STRIKE_SHADOW`, `CHEAPER_STRIKE_ALERTS`, `STRIKE_MIN_DELTA`, `STRIKE_MAX_MOVE_ATR_FRAC`, `STRIKE_MIN_VOLUME`, `STRIKE_MIN_OI`, `STRIKE_OI_WALL_RATIO` | True, False, 0.25, 0.35, 200, 1000, 1.5 | Reasoned strike choice: silent test on, real alerts off |
 | `TWO_STAGE_SCAN`, `TWO_STAGE_FULL_EVERY`, `PRELOAD_BEFORE_OPEN`, `SILENT_TRACK_UNTIL` | True, 20, True, 14:55 | Faster scans (option chains only where they can matter), history pre-loaded before the open, no silent trades in the last 15 minutes |
 | `OI_DIRECTION_AWARE`, `STRETCHED_RSI_PENALTY`, `STRETCHED_RSI_HIGH/LOW`, `CONTINUATION_BONUS`, `CONTINUATION_MIN_MOVE_PCT` | True, 5, 70/30, 6, 2.0 | Score changes learned from the 26 Nov silent winners (set a penalty/bonus to 0 to switch it off) |

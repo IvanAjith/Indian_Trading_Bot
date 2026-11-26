@@ -138,6 +138,7 @@ def pick_reasoned_strike(snapshot: UnderlyingSnapshot, option_type: str, exclude
     strikes = [q.strike for q in side]
     atm_i = strikes.index(atm.strike)
     atr = _avg_daily_range(snapshot)
+    atm_delta = _estimate_delta(side, atm_i, option_type)
     other_type = "PE" if option_type == "CE" else "CE"
     exclude = {float(x) for x in exclude_strikes}
 
@@ -156,6 +157,8 @@ def pick_reasoned_strike(snapshot: UnderlyingSnapshot, option_type: str, exclude
         steps = (i - atm_i) if option_type == "CE" else (atm_i - i)   # >0 = out of the money
         if sides == "otm" and steps < 0:
             continue
+        if abs(steps) > config.STRIKE_MAX_STEPS:
+            continue          # never drift far from ATM just to get under the budget
         lot = max(int(q.lot_size or 1), 1)
         cost = q.ltp * lot
         if max_cost and cost > max_cost:
@@ -163,6 +166,8 @@ def pick_reasoned_strike(snapshot: UnderlyingSnapshot, option_type: str, exclude
         delta = _estimate_delta(side, i, option_type)
         if delta < config.STRIKE_MIN_DELTA:
             continue
+        if atm_delta > 0 and delta < config.STRIKE_MIN_DELTA_VS_ATM * atm_delta:
+            continue          # must still behave like the at-the-money trade
         move = (q.ltp * config.TARGET_PCT_T1 / 100) / delta if delta > 0 else float("inf")
         if atr > 0 and move > config.STRIKE_MAX_MOVE_ATR_FRAC * atr:
             continue
@@ -181,7 +186,7 @@ def pick_reasoned_strike(snapshot: UnderlyingSnapshot, option_type: str, exclude
     reasons = [
         f"cost ₹{cost:,.0f} per lot (limit ₹{max_cost:,.0f})" if max_cost else f"cost ₹{cost:,.0f} per lot",
         where,
-        f"delta about {delta:.2f}",
+        f"delta about {delta:.2f}" + (f" ({delta / atm_delta * 100:.0f}% of the at-the-money delta)" if atm_delta > 0 else ""),
         (f"needs about {move:,.1f} points for Target 1 ({move / atr * 100:.0f}% of the usual daily range {atr:,.0f})"
          if atr > 0 else f"needs about {move:,.1f} points for Target 1"),
         f"volume {int(q.volume or 0):,}, open interest {int(q.oi or 0):,}",
