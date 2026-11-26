@@ -20,6 +20,7 @@ one at a time ("build item 4.2"). Keep one change per release, so results stay c
 | Budget | Skip a signal if **one lot costs more than ₹35,000** (`MAX_COST_PER_LOT`). |
 | Repeat alerts | First alert of the day always allowed. A repeat on the same stock/index needs: earlier call **closed**, new score **above 80**, and - after a profit (reached T1, or green at square-off) - a **different strike** from all that day's profitable calls (same strike OK after a loss). Indexes and stocks, CE and PE, no daily limit. (Changed 26 Nov 2026; was: score 90+, once.) |
 | Volume | Live traded volume from the quote on every scan (fixed 26 Nov 2026: a 4-hour cached candle had frozen the volume, so morning scores were too low and alerts burst when it refreshed). Optional time-of-day volume ratio: `VOLUME_TIME_ADJUST`, off. |
+| Scan speed | Two-stage scan (option chains only for symbols that can still reach the heads-up band; first scan of the day and every 20th are full), daily history pre-loaded before the open, history cached for the whole session. Target: a scan in ~30 s instead of ~90 s, so heads-ups/alerts arrive closer to the moment a score crosses its threshold. Silent tracking stops at 14:55. (26 Nov 2026) |
 | Reasoned strikes | Over-budget signals are paper-traded silently at a strike chosen by reasons (cost, delta, reachable move, liquidity, OI wall); real alerts for it are off until the journal supports it. |
 | Plan | **Indexes** (NIFTY, BANKNIFTY, FINNIFTY): 3 lots, 3 targets. **Stocks**: 2 lots, 2 targets. One lot sold at each target. |
 | Targets/stop | T1 +15%, T2 +30%, T3 +50% (indexes only); stoploss -18%. After T1 stop → cost; after T2 (indexes) stop → T1 price. |
@@ -64,7 +65,7 @@ Where the data lives: `journal-data` branch → `journal/YYYY-MM-DD.md` (read), 
 6. **Capital:** "Peak capital in use" vs the ₹1 lakh account. Too high often → money-in-use cap (4.6) or fewer alerts.
 7. **Realism:** compare a few paper entries/exits with real broker prices at that minute. Large gaps → realistic fills (4.3).
 8. **Cost/instrument mix:** which instruments and cost-per-lot groups earn most? Are BANKNIFTY/FINNIFTY missing because of the ₹35,000 filter (→ 4.2)?
-9. **Scan speed:** "First scan done in X min" and average scan time in the summary; rate-limit retries. Too slow → lower `AUTO_UNIVERSE_MAX_STOCKS`.
+9. **Scan speed:** "First scan done in X min" and average scan time in the summary (26 Nov, before two-stage: first 10.4 min, avg 91 s, slowest 364 s, 275 retries); confirm the two-stage scan brought it to ~30 s and the first scan to ~1-2 min. Still too slow → lower `AUTO_UNIVERSE_MAX_STOCKS`.
 10. **Charges:** estimate brokerage + taxes on the average trade vs the average profit (a ₹20 order fee and STT matter on small wins).
 
 ---

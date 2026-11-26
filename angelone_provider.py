@@ -193,7 +193,7 @@ class AngelOneDataProvider:
         self.instruments = self._load_instrument_master()
         self._build_indexes()
         self._history_cache = {}   # {(exchange, token): (fetched_at, DataFrame)}
-        self._history_cache_max_age = 4 * 3600   # daily candles barely change intraday; the live
+        self._history_cache_max_age = 8 * 3600   # daily candles barely change intraday (whole session); the live
                                                  # price is patched into today's row on every scan
                                                  # (see _with_live_today), so re-fetching every
                                                  # 30 min (a ~100 s stall for ~80 symbols) isn't needed
@@ -336,13 +336,26 @@ class AngelOneDataProvider:
 
     @staticmethod
     def _with_live_today(history: pd.DataFrame, spot: float) -> pd.DataFrame:
-        """If the last candle is today's, update its close/high/low with the
-        live price, so RSI/EMA/breakout checks see the current price even though
-        the daily history itself is only fetched occasionally."""
+        """Make sure the last row is TODAY's, carrying the live price, so RSI/EMA/breakout checks see the current price even
+        though the daily history is downloaded only once. If the history was downloaded before today's candle existed (e.g.
+        pre-loaded before the open), a row for today is added: open/high/low/close = the live price, previous close = the last
+        close. Volume is not taken from this row (the screener uses the live traded volume)."""
         if history is None or history.empty or "CH_TIMESTAMP" not in history:
             return history
-        if str(history["CH_TIMESTAMP"].iloc[-1]) != dt.date.today().isoformat():
+        today = dt.date.today().isoformat()
+        last = str(history["CH_TIMESTAMP"].iloc[-1])
+        if last > today:
             return history
+        if last < today:
+            row = {c: None for c in history.columns}
+            row.update({
+                "CH_TIMESTAMP": today,
+                "CH_OPENING_PRICE": float(spot), "CH_TRADE_HIGH_PRICE": float(spot), "CH_TRADE_LOW_PRICE": float(spot),
+                "CH_CLOSING_PRICE": float(spot),
+                "CH_PREVIOUS_CLS_PRICE": float(history["CH_CLOSING_PRICE"].iloc[-1]),
+                "CH_TOT_TRADED_QTY": 0,
+            })
+            return pd.concat([history, pd.DataFrame([row])], ignore_index=True)
         df = history.copy()
         idx = df.index[-1]
         df.loc[idx, "CH_CLOSING_PRICE"] = float(spot)
@@ -611,10 +624,25 @@ class AngelOneDataProvider:
         return dict(STATS)
 
     # -- snapshots ---------------------------------------------------------
-    def get_snapshots(self, universe: list) -> list:
-        """Fast path: builds snapshots for the whole universe using batched
-        quote calls (~40 tokens per API call) instead of several calls per
-        symbol. Symbols that fail are skipped, not fatal."""
+    def preload(self):
+        """Download the daily history for every symbol in today's universe (the slow part of the first scan) so the first scan
+        is quick. Safe to call before the market opens; a no-op for symbols already cached."""
+        universe = self.get_universe()
+        if len(universe) < 30:        # suspiciously small (pre-open quotes can be empty): rebuild at the first real scan
+            self._universe_cache = None
+        jobs = []
+        for sym, is_index in universe:
+            try:
+                jobs.append(("NSE", self._find_equity_or_index_token(sym, is_index)["token"]))
+            except Exception:
+                pass
+        self._prefetch_histories(jobs)
+
+    def get_snapshots(self, universe: list, chain_filter=None) -> list:
+        """Fast path: builds snapshots for the whole universe using batched quote calls (~40 tokens per API call) instead of
+        several calls per symbol. Symbols that fail are skipped, not fatal.
+        chain_filter (optional, two-stage scan): a function(snapshot without option chain) -> bool. Option quotes are downloaded
+        only for symbols where it returns True, for indexes and for symbols we hold; the others get an empty option chain."""
         insts = {}
         for sym, is_index in universe:
             try:
@@ -624,7 +652,7 @@ class AngelOneDataProvider:
 
         spot_rows = self._market_data("NSE", [i["token"] for i in insts.values()])
 
-        plan, all_tokens = [], []
+        plan = []
         for sym, is_index in universe:
             inst = insts.get(sym)
             if not inst:
@@ -648,22 +676,46 @@ class AngelOneDataProvider:
                 if hi and hi["token"] not in have:
                     held.append(hi)
                     have.add(hi["token"])
-            plan.append((sym, inst, spot, nearest, near, held))
-            all_tokens.extend(i["token"] for i in near + held)
+            plan.append((sym, is_index, inst, spot, nearest, near, held))
 
-        option_rows = self._market_data("NFO", list(dict.fromkeys(all_tokens)))
-        self._prefetch_histories([("NSE", inst["token"]) for _, inst, *_ in plan])
+        self._prefetch_histories([("NSE", inst["token"]) for _, _, inst, *_ in plan])
+
+        def live_volume(inst):
+            row_s = spot_rows.get(str(inst["token"])) or {}
+            try:
+                return int(float(row_s.get("tradeVolume") or 0))
+            except (TypeError, ValueError):
+                return 0
+
+        # stage 1 -> which symbols need their option chain downloaded
+        wanted = set()
+        for sym, is_index, inst, spot, nearest, near, held in plan:
+            if chain_filter is None or is_index or held or any(h[0] == sym for h in self.watch_contracts):
+                wanted.add(sym)
+                continue
+            try:
+                hist0 = self._with_live_today(self._get_historical_daily("NSE", inst["token"]), spot)
+                if chain_filter(self._make_snapshot(sym, spot, hist0, [], live_volume=live_volume(inst))):
+                    wanted.add(sym)
+            except Exception:
+                wanted.add(sym)        # when in doubt, download it
+        all_tokens = []
+        for sym, is_index, inst, spot, nearest, near, held in plan:
+            if sym in wanted:
+                all_tokens.extend(i["token"] for i in near + held)
+        option_rows = self._market_data("NFO", list(dict.fromkeys(all_tokens))) if all_tokens else {}
+        if chain_filter is not None:
+            print(f"[angelone] two-stage scan: option chains for {len(wanted)} of {len(plan)} symbols")
 
         snapshots = []
-        for sym, inst, spot, nearest, near, held in plan:
+        for sym, is_index, inst, spot, nearest, near, held in plan:
             try:
                 history = self._with_live_today(
                     self._get_historical_daily("NSE", inst["token"]), spot)
-                chain = self._quotes_from_rows(sym, nearest, near, option_rows) if near else []
-                held_q = self._quotes_from_rows(sym, nearest, held, option_rows) if held else []
-                row_s = spot_rows.get(str(inst["token"])) or {}
-                live_vol = int(float(row_s.get("tradeVolume") or 0))
-                snap = self._make_snapshot(sym, spot, history, chain, live_volume=live_vol)
+                get_chain = sym in wanted
+                chain = self._quotes_from_rows(sym, nearest, near, option_rows) if (near and get_chain) else []
+                held_q = self._quotes_from_rows(sym, nearest, held, option_rows) if (held and get_chain) else []
+                snap = self._make_snapshot(sym, spot, history, chain, live_volume=live_volume(inst))
                 snap.held_quotes = held_q
                 snapshots.append(snap)
             except Exception as exc:

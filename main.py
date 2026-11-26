@@ -19,7 +19,7 @@ import time
 
 import config
 from data_fetcher import get_provider
-from screener import rank_universe, watchlist_candidates
+from screener import rank_universe, watchlist_candidates, needs_option_chain
 from strategy import pick_reasoned_strike, build_trade_idea, _pick_strike
 from paper_trader import PaperTradingAccount
 from telegram_notifier import (
@@ -42,7 +42,7 @@ def _default_universe():
     return [(s, True) for s in config.INDEX_UNIVERSE] + [(s, False) for s in config.STOCK_UNIVERSE]
 
 
-def fetch_all_snapshots(provider):
+def fetch_all_snapshots(provider, chain_filter=None):
     universe = provider.get_universe() if hasattr(provider, "get_universe") else _default_universe()
     # A stock/index with an open trade must ALWAYS be scanned, even if it dropped out of today's ranking.
     scanned = {s for s, _ in universe}
@@ -52,6 +52,8 @@ def fetch_all_snapshots(provider):
     # Fast path: providers that can fetch many symbols per API call (Angel One).
     if hasattr(provider, "get_snapshots"):
         try:
+            if chain_filter is not None:
+                return provider.get_snapshots(universe, chain_filter=chain_filter)
             return provider.get_snapshots(universe)
         except Exception as exc:
             print(f"[main] batch fetch failed ({exc}); falling back to one symbol at a time.")
@@ -199,7 +201,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         "day_log": _fresh_day_log(), "watchlisted_today": set(),
         "eod_warned_today": set(), "last_snap_by_symbol": {},
         "scans": 0, "symbols_scanned": 0, "scan_secs": [], "suppressed_logged": set(),
-        "alerts_sent_today": 0, "daily_cap_hit": False, "skipped_budget": {}, "shadow_symbols": set(), "shadow_cheaper": set(), "last_scan_done_at": None,
+        "alerts_sent_today": 0, "daily_cap_hit": False, "skipped_budget": {}, "shadow_symbols": set(), "shadow_cheaper": set(), "last_scan_done_at": None, "preloaded": False,
         "alerts_by_symbol": {s.strip().upper(): 1 for s in (already_alerted or []) if s.strip()}, "closed_checked": not skip_if_closed,
         "watchlist_score_history": {},  # {(symbol, bias): last-seen score} -
                                         # used to only alert when a setup is
@@ -412,6 +414,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         only if the symbol has not alerted) so the journal and weekly review can compare the lower score band."""
         if not account or not config.SHADOW_TRACK_LOWER_BAND or r.score < config.MIN_SIGNAL_SCORE:
             return
+        if config.SILENT_TRACK_UNTIL and dt.datetime.now().strftime("%H:%M") >= config.SILENT_TRACK_UNTIL:
+            return   # too close to the square-off to teach anything
         if r.symbol in state["shadow_symbols"] or state["alerts_by_symbol"].get(r.symbol, 0):
             return
         snap_s = snap_by_symbol.get(r.symbol)
@@ -436,6 +440,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         """An over-budget signal: paper-trade it SILENTLY at the reasoned (cheaper) strike so the journal shows whether
         that strike would have worked. No Telegram message. One per underlying per day."""
         if not account or not config.CHEAPER_STRIKE_SHADOW or r.symbol in state["shadow_cheaper"]:
+            return
+        if config.SILENT_TRACK_UNTIL and dt.datetime.now().strftime("%H:%M") >= config.SILENT_TRACK_UNTIL:
             return
         snap_c = snap_by_symbol.get(r.symbol)
         if snap_c is None:
@@ -637,7 +643,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             f"you can already send /add or /trades meanwhile."
         )
 
-    def _fetch_while_polling():
+    def _fetch_while_polling(chain_filter=None):
         """Run one market scan in a background thread and keep answering Telegram commands every
         few seconds while it runs. The first scan of a session downloads history for every symbol
         and can take several minutes - commands (/add, /trades, ...) must not sit unanswered."""
@@ -646,7 +652,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
 
         def work():
             try:
-                box["snaps"] = fetch_all_snapshots(provider)
+                box["snaps"] = fetch_all_snapshots(provider, chain_filter=chain_filter)
             except Exception as exc:   # surfaced in the main thread below
                 box["error"] = exc
 
@@ -719,6 +725,15 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
 
             if not _in_market_hours(now):
                 before_open, _ = _within_market_hours(now)
+                if (before_open and config.PRELOAD_BEFORE_OPEN and not state["preloaded"]
+                        and hasattr(provider, "preload") and not state["closed_checked"]):
+                    state["preloaded"] = True       # use the wait: download the daily history now, not during the first scan
+                    try:
+                        print("[monitor] pre-loading daily history while waiting for the open...")
+                        provider.preload()
+                    except Exception as exc:
+                        print(f"[monitor] pre-load failed (not fatal): {exc}")
+                    continue
                 reason = f"opens at {config.MARKET_OPEN_TIME}" if before_open else "closed for the day"
                 print(f"[monitor] {now:%H:%M} - market {reason}. Idling (still answering Telegram status/summary)...")
                 _sleep_with_status_polling(min(config.MONITOR_INTERVAL_SECONDS, 60))
@@ -729,6 +744,14 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
 
             if not state["closed_checked"]:
                 if now.strftime("%H:%M") < "09:20":
+                    if config.PRELOAD_BEFORE_OPEN and not state["preloaded"] and hasattr(provider, "preload"):
+                        state["preloaded"] = True
+                        try:
+                            print("[monitor] pre-loading daily history while waiting for the open...")
+                            provider.preload()
+                        except Exception as exc:
+                            print(f"[monitor] pre-load failed (not fatal): {exc}")
+                        continue
                     _sleep_with_status_polling(min(30, config.MONITOR_INTERVAL_SECONDS + 20))
                     continue
                 traded = None
@@ -755,7 +778,9 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                                             for p in account.open_positions + account.shadow_positions
                                             if p.status != "CLOSED"}
             scan_started = time.time()
-            snapshots = _fetch_while_polling()
+            two_stage = (config.TWO_STAGE_SCAN and state["scans"] % max(config.TWO_STAGE_FULL_EVERY, 1) != 0
+                         and hasattr(provider, "get_snapshots"))
+            snapshots = _fetch_while_polling(chain_filter=needs_option_chain if two_stage else None)
             if snapshots is None:
                 _end_session()
                 break

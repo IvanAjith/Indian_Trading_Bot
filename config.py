@@ -256,3 +256,21 @@ STRIKE_MAX_MOVE_ATR_FRAC = 0.35
 STRIKE_MIN_VOLUME = 200
 STRIKE_MIN_OI = 1000
 STRIKE_OI_WALL_RATIO = 1.5         # an opposing OI "wall" = a strike with at least this x the OI of the candidate
+
+# ---------------------------------------------------------------------------
+# Scan speed and timing (added 26 Nov 2026)
+# ---------------------------------------------------------------------------
+# Most scan time went on downloading option quotes for ~100 symbols every scan (about 90 s per scan, so alerts and heads-ups
+# arrived in bursts, minutes after a score crossed its threshold). Two-stage scan: stage 1 prices every symbol (spot + daily
+# history, no option chain) and scores it without the option-OI part; stage 2 downloads option chains only for symbols that could
+# still reach WATCHLIST_MIN_SCORE once the OI part is added (the OI part can add at most 9 points - see screener.needs_option_chain),
+# plus the indexes and anything you hold. The scores of those symbols are identical to a full scan; the rest could not alert
+# anyway. Every TWO_STAGE_FULL_EVERY-th scan (and the first of the day) is a full scan.
+TWO_STAGE_SCAN = True
+TWO_STAGE_FULL_EVERY = 20
+# Before 09:20 the bot used to sit idle, then spend ~10 minutes downloading daily history for every symbol during the first scan.
+# Now it downloads that history while it waits (from the moment it starts), so the first scan is quick.
+PRELOAD_BEFORE_OPEN = True
+# Silent tracking (paper trades below 70 or after the cutoff, journal only) stops at this time: a trade opened with a few minutes
+# before the 15:10 square-off teaches nothing.
+SILENT_TRACK_UNTIL = "14:55"

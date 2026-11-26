@@ -97,6 +97,12 @@ Each symbol gets a 0-100 **score**:
   in the way; of what passes, the strike closest to the money. Over-budget signals are paper-traded **silently** at
   that strike (`CHEAPER_STRIKE_SHADOW`) so the journal shows whether it works; real alerts for it stay off
   (`CHEAPER_STRIKE_ALERTS = False`) until the journal supports it. An alert at such a strike says why it was chosen.
+- **Faster scans (two-stage).** A scan used to download option quotes for ~100 symbols (about 90 s), so alerts and
+  heads-ups arrived in bursts, minutes late. Now stage 1 prices every symbol and scores it without the option-OI part;
+  stage 2 downloads option chains only for symbols that could still reach the heads-up band (the OI part can add at most
+  9 points), plus the indexes and anything you hold - their scores are identical to a full scan. The first scan of the day
+  and every 20th scan are full (`TWO_STAGE_SCAN`, `TWO_STAGE_FULL_EVERY`). While waiting for the open the bot downloads the
+  daily history (`PRELOAD_BEFORE_OPEN`), so the first scan is quick. Silent tracking stops at 14:55 (`SILENT_TRACK_UNTIL`).
 - **Volume is live.** Today's traded volume is read from the live quote on every scan (an earlier version used a
   daily candle cached for 4 hours, which made morning scores too low and caused an alert burst at the refresh).
   `VOLUME_TIME_ADJUST` (off by default) can compare volume with what is usual by this time of day.
@@ -295,6 +301,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `ONE_ALERT_PER_UNDERLYING_PER_DAY`, `REALERT_MIN_SCORE`, `REALERT_MAX_PER_DAY` | True, 80, None | Repeat alerts on the same stock/index: earlier call closed, score above 80, different strike after a profit (same strike allowed after a loss), no daily limit |
 | `VOLUME_TIME_ADJUST`, `VOLUME_DAY_PROFILE` | False | Compare volume with the usual volume by this time of day (off: plain 20-day average) |
 | `CHEAPER_STRIKE_SHADOW`, `CHEAPER_STRIKE_ALERTS`, `STRIKE_MIN_DELTA`, `STRIKE_MAX_MOVE_ATR_FRAC`, `STRIKE_MIN_VOLUME`, `STRIKE_MIN_OI`, `STRIKE_OI_WALL_RATIO` | True, False, 0.25, 0.35, 200, 1000, 1.5 | Reasoned strike choice: silent test on, real alerts off |
+| `TWO_STAGE_SCAN`, `TWO_STAGE_FULL_EVERY`, `PRELOAD_BEFORE_OPEN`, `SILENT_TRACK_UNTIL` | True, 20, True, 14:55 | Faster scans (option chains only where they can matter), history pre-loaded before the open, no silent trades in the last 15 minutes |
 | `QUICK_CHECK_SECONDS` | 20 | Open trades are re-priced this often between full scans |
 | `PAPER_TRACK_ALL_SIGNALS` | True | Paper-trade every alert (no position cap) |
 | `MAX_CAPITAL_PER_TRADE_PCT`, `MAX_TRADES_PER_DAY` | 5, 3 | Risk per trade / max open positions (the cap applies only if tracking-all is False) |
