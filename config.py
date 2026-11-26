@@ -274,3 +274,23 @@ PRELOAD_BEFORE_OPEN = True
 # Silent tracking (paper trades below 70 or after the cutoff, journal only) stops at this time: a trade opened with a few minutes
 # before the 15:10 square-off teaches nothing.
 SILENT_TRACK_UNTIL = "14:55"
+
+# ---------------------------------------------------------------------------
+# Score changes learned from the 26 Nov 2026 journal (silent winners TCS and HCLTECH vs the rest) - added 26 Nov evening
+# ---------------------------------------------------------------------------
+# 1. Open interest must AGREE with the trade. A bullish setup earns the OI points only from call build-up / short covering,
+#    a bearish setup only from put build-up / long unwinding; build-up in the opposite direction now scores 45 (neutral-low)
+#    instead of 80. (26 Nov: stock trades with OI against them won 1 of 7, -Rs 12,452.)
+OI_DIRECTION_AWARE = True
+# 2. A stretched trend scores lower: a bullish stock with RSI >= STRETCHED_RSI_HIGH (or a bearish one with RSI <= STRETCHED_RSI_LOW)
+#    loses STRETCHED_RSI_PENALTY points. Stocks only: indexes trend differently and the sample is one trade.
+#    (26 Nov: stretched stock trades won 3 of 12, -Rs 28,190; not stretched won 5 of 9, +Rs 13,606.)
+STRETCHED_RSI_PENALTY = 5.0
+STRETCHED_RSI_HIGH = 70
+STRETCHED_RSI_LOW = 30
+# 3. Continuation bonus: a move of at least CONTINUATION_MIN_MOVE_PCT today IN the trade's direction, with agreeing open-interest
+#    build-up and a trend that is not stretched, adds CONTINUATION_BONUS points. (TCS +2.5% and HCLTECH +4.6% both reached Target 1
+#    and ran to +21-27%.) Set the penalty/bonus to 0 to switch either off. These come from ONE day of data (21 stock trades): the
+#    weekly review checks them from now on, and they must be re-checked at the 11 Dec and 18 Dec checkpoints.
+CONTINUATION_BONUS = 6.0
+CONTINUATION_MIN_MOVE_PCT = 2.0

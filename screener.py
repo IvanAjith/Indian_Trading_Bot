@@ -96,14 +96,30 @@ def _oi_signal(snapshot: UnderlyingSnapshot, bias_hint: str) -> tuple[str, float
     price_up = snapshot.spot >= snapshot.prev_close
 
     if ce and ce.oi_change_pct >= config.MIN_OI_CHANGE_PCT and price_up:
-        return "long_buildup", OI_SCORE_MAX
-    if pe and pe.oi_change_pct >= config.MIN_OI_CHANGE_PCT and not price_up:
-        return "short_buildup", OI_SCORE_MAX
-    if ce and ce.oi_change_pct <= -config.MIN_OI_CHANGE_PCT and not price_up:
-        return "long_unwinding", 55.0
-    if pe and pe.oi_change_pct <= -config.MIN_OI_CHANGE_PCT and price_up:
-        return "short_covering", 55.0
-    return "flat", 45.0
+        sig, pts = "long_buildup", OI_SCORE_MAX
+    elif pe and pe.oi_change_pct >= config.MIN_OI_CHANGE_PCT and not price_up:
+        sig, pts = "short_buildup", OI_SCORE_MAX
+    elif ce and ce.oi_change_pct <= -config.MIN_OI_CHANGE_PCT and not price_up:
+        sig, pts = "long_unwinding", 55.0
+    elif pe and pe.oi_change_pct <= -config.MIN_OI_CHANGE_PCT and price_up:
+        sig, pts = "short_covering", 55.0
+    else:
+        return "flat", 45.0
+    # The OI points only count when the OI agrees with the trade (a bullish setup with put build-up, or a bearish one with
+    # call build-up, no longer earns the full credit).
+    if getattr(config, "OI_DIRECTION_AWARE", False) and not oi_agrees(sig, bias_hint) and bias_hint in ("BULLISH", "BEARISH"):
+        return sig, 45.0
+    return sig, pts
+
+
+def oi_agrees(oi_signal: str, bias: str) -> bool:
+    """True if this open-interest reading points the same way as the trade (bullish: call build-up / short covering;
+    bearish: put build-up / long unwinding)."""
+    if bias == "BULLISH":
+        return oi_signal in ("long_buildup", "short_covering")
+    if bias == "BEARISH":
+        return oi_signal in ("short_buildup", "long_unwinding")
+    return False
 
 
 # composite weights (single source of truth for screen_symbol and needs_option_chain)
@@ -114,12 +130,14 @@ OI_SCORE_UNKNOWN, OI_SCORE_MAX = 50.0, 80.0   # no option chain -> 50; the best 
 def needs_option_chain(snapshot: UnderlyingSnapshot, margin: float = 1.0) -> bool:
     """Two-stage scan, stage 1: can this symbol still reach WATCHLIST_MIN_SCORE once its option-chain (OI) part is known?
     `snapshot` has no option chain, so its score uses a neutral OI part (50). The real OI part is at most 80, which adds at most
-    W_OI * (80 - 50) = 9 points. So a symbol whose chain-less score is below the floor minus that uplift can never reach the
-    watch/alert band, and downloading its option quotes would be wasted. A neutral (no clear trend) symbol never alerts either."""
+    W_OI * (80 - 50) = 9 points, plus the continuation bonus (which also needs agreeing OI). So a symbol whose chain-less score is
+    below the floor minus that uplift can never reach the watch/alert band, and downloading its option quotes would be wasted.
+    A neutral (no clear trend) symbol never alerts either."""
     r = screen_symbol(snapshot)
     if r.bias == "NEUTRAL":
         return False
-    floor = min(config.WATCHLIST_MIN_SCORE, config.MIN_SIGNAL_SCORE) - W_OI * (OI_SCORE_MAX - OI_SCORE_UNKNOWN) - margin
+    floor = (min(config.WATCHLIST_MIN_SCORE, config.MIN_SIGNAL_SCORE)
+             - W_OI * (OI_SCORE_MAX - OI_SCORE_UNKNOWN) - max(config.CONTINUATION_BONUS, 0.0) - margin)
     return r.score >= floor
 
 
@@ -145,12 +163,29 @@ def screen_symbol(snapshot: UnderlyingSnapshot) -> ScreenResult:
     )
 
     trigger_reasons = []
+    extra_notes = []
+    stretched = False
     if bias in ("BULLISH", "BEARISH"):
         trigger_reasons = trig.collect_triggers(snapshot.history, bullish=(bias == "BULLISH"))
         if vol_ratio >= config.MIN_VOLUME_SPIKE_RATIO:
             trigger_reasons.append(f"volume {vol_ratio:.1f}x the 20-day average")
-        if oi_sig in ("long_buildup", "short_buildup"):
+        if oi_sig in ("long_buildup", "short_buildup") and (oi_agrees(oi_sig, bias) or not config.OI_DIRECTION_AWARE):
             trigger_reasons.append(f"options OI shows {oi_sig.replace('_', ' ')}")
+        elif oi_sig in ("long_buildup", "short_buildup", "long_unwinding", "short_covering") and config.OI_DIRECTION_AWARE:
+            extra_notes.append(f"OI ({oi_sig.replace('_', ' ')}) points against this trade - no OI credit")
+
+        # stretched trend: lower the score (stocks only)
+        is_idx = snapshot.symbol.upper() in {x.upper() for x in config.INDEX_UNIVERSE}
+        stretched = (bias == "BULLISH" and r >= config.STRETCHED_RSI_HIGH) or (bias == "BEARISH" and r <= config.STRETCHED_RSI_LOW)
+        if stretched and not is_idx and config.STRETCHED_RSI_PENALTY:
+            composite -= config.STRETCHED_RSI_PENALTY
+            extra_notes.append(f"RSI {r:.0f} is stretched (-{config.STRETCHED_RSI_PENALTY:g})")
+        # continuation: strong same-direction move today + agreeing OI build-up + trend not stretched
+        if snapshot.prev_close and config.CONTINUATION_BONUS and not stretched:
+            move = (snapshot.spot / snapshot.prev_close - 1) * 100 * (1 if bias == "BULLISH" else -1)
+            if move >= config.CONTINUATION_MIN_MOVE_PCT and oi_sig in ("long_buildup", "short_buildup") and oi_agrees(oi_sig, bias):
+                composite += config.CONTINUATION_BONUS
+                trigger_reasons.append(f"strong {move:+.1f}% move today in this direction with agreeing open interest")
 
     notes = []
     if vol_ratio < config.MIN_VOLUME_SPIKE_RATIO:
@@ -159,11 +194,12 @@ def screen_symbol(snapshot: UnderlyingSnapshot) -> ScreenResult:
         notes.append("no clear OI conviction")
     if bias == "NEUTRAL":
         notes.append("no clean trend")
+    notes.extend(extra_notes)
 
     return ScreenResult(
         symbol=snapshot.symbol,
         bias=bias,
-        score=round(composite, 1),
+        score=round(max(0.0, min(100.0, composite)), 1),
         spot=snapshot.spot,
         rsi_value=round(r, 1),
         volume_ratio=round(vol_ratio, 2),

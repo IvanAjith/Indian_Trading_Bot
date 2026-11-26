@@ -61,6 +61,12 @@ Each symbol gets a 0-100 **score**:
   - **At most 2 alerts per scan** (`MAX_ALERTS_PER_SCAN`), best score first, to avoid an opening burst. Nothing is
     lost: a signal that does not fit in this scan alerts in the next one, a minute or two later, if it still qualifies.
   - **One alert per stock/index per day** (see below).
+- **How the score is built (0-100):** 40% momentum (RSI and trend), 20% volume (live traded volume vs the 20-day average),
+  30% option open interest, 10% IV. Three changes learned from 26 Nov 2026 (`OI_DIRECTION_AWARE`, `STRETCHED_RSI_PENALTY`,
+  `CONTINUATION_BONUS`): open interest only earns its points when it **agrees with the trade** (a call needs call build-up,
+  a put needs put build-up); a **stretched trend** (stock call with RSI 70+, put with RSI 30 or below) loses 5 points; and a
+  **continuation** (the stock already moved 2%+ in the trade's direction, with agreeing OI and a trend not stretched) gains 6.
+  These come from one day (21 stock trades) - the weekly review checks them and they are re-examined at the 11 and 18 Dec checkpoints.
 - Score **65 to 69.9** → **no alert**. These signals are paper-traded **silently** (`SHADOW_TRACK_LOWER_BAND`) and
   written to the journal, so the weekly review can show whether the lower band really does worse. The summary has a
   "🔇 Silent tracking" line; they never appear in `/trades` or in your totals. If the silent trades turn out as good
@@ -302,6 +308,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `VOLUME_TIME_ADJUST`, `VOLUME_DAY_PROFILE` | False | Compare volume with the usual volume by this time of day (off: plain 20-day average) |
 | `CHEAPER_STRIKE_SHADOW`, `CHEAPER_STRIKE_ALERTS`, `STRIKE_MIN_DELTA`, `STRIKE_MAX_MOVE_ATR_FRAC`, `STRIKE_MIN_VOLUME`, `STRIKE_MIN_OI`, `STRIKE_OI_WALL_RATIO` | True, False, 0.25, 0.35, 200, 1000, 1.5 | Reasoned strike choice: silent test on, real alerts off |
 | `TWO_STAGE_SCAN`, `TWO_STAGE_FULL_EVERY`, `PRELOAD_BEFORE_OPEN`, `SILENT_TRACK_UNTIL` | True, 20, True, 14:55 | Faster scans (option chains only where they can matter), history pre-loaded before the open, no silent trades in the last 15 minutes |
+| `OI_DIRECTION_AWARE`, `STRETCHED_RSI_PENALTY`, `STRETCHED_RSI_HIGH/LOW`, `CONTINUATION_BONUS`, `CONTINUATION_MIN_MOVE_PCT` | True, 5, 70/30, 6, 2.0 | Score changes learned from the 26 Nov silent winners (set a penalty/bonus to 0 to switch it off) |
 | `QUICK_CHECK_SECONDS` | 20 | Open trades are re-priced this often between full scans |
 | `PAPER_TRACK_ALL_SIGNALS` | True | Paper-trade every alert (no position cap) |
 | `MAX_CAPITAL_PER_TRADE_PCT`, `MAX_TRADES_PER_DAY` | 5, 3 | Risk per trade / max open positions (the cap applies only if tracking-all is False) |
