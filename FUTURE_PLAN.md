@@ -21,6 +21,7 @@ one at a time ("build item 4.2"). Keep one change per release, so results stay c
 | Repeat alerts | First alert of the day always allowed. A repeat on the same stock/index needs: earlier call **closed**, new score **above 80**, and - after a profit (reached T1, or green at square-off) - a **different strike** from all that day's profitable calls (same strike OK after a loss). Indexes and stocks, CE and PE, no daily limit. (Changed 26 Nov 2026; was: score 90+, once.) |
 | Volume | Live traded volume from the quote on every scan (fixed 26 Nov 2026: a 4-hour cached candle had frozen the volume, so morning scores were too low and alerts burst when it refreshed). Optional time-of-day volume ratio: `VOLUME_TIME_ADJUST`, off. |
 | Score | 40% momentum, 20% live volume, 30% OI, 10% IV, plus (from 26 Nov evening): OI counts only when it agrees with the trade; stretched RSI (stock call 70+/put 30-) -5; continuation (2%+ same-direction move + agreeing OI + not stretched) +6. Built from ONE day of data - re-check at the 11 and 18 Dec checkpoints (weekly review factors: oi_against, stretched, continuation). |
+| Learning loop | Live rules are FIXED for the week (`RULES_VERSION`). Every night `rule_lab.py` replays candidate rules on the journal (out-of-sample days only count; in-sample is shown but not trusted), shows the trade-off, runs data checks and sends a short Telegram note. The weekly meeting approves AT MOST ONE change, then `RULES_VERSION` is bumped. Silent tracking floor lowered to 60 (heads-ups still 65+; max 40 silent trades/day). Candidates: rsi_cap_65, stretched_penalty_10, continuation_bonus_10, oi_must_agree, move_1pct_with_trade, window_0950_1430. (26 Nov 2026) |
 | Scan speed | Two-stage scan (option chains only for symbols that can still reach the heads-up band; first scan of the day and every 20th are full), daily history pre-loaded before the open, history cached for the whole session. Target: a scan in ~30 s instead of ~90 s, so heads-ups/alerts arrive closer to the moment a score crosses its threshold. Silent tracking stops at 14:55. (26 Nov 2026) |
 | Reasoned strikes | Over-budget signals are paper-traded silently at a strike chosen by reasons (cost, delta, reachable move, liquidity, OI wall); real alerts for it are off until the journal supports it. |
 | Plan | **Indexes** (NIFTY, BANKNIFTY, FINNIFTY): 3 lots, 3 targets. **Stocks**: 2 lots, 2 targets. One lot sold at each target. |
@@ -55,6 +56,8 @@ Where the data lives: `journal-data` branch → `journal/YYYY-MM-DD.md` (read), 
 ---
 
 ## 3. Review checklist (answer from the numbers)
+
+0. **Rule lab:** open `journal/lab/candidates.md` - which candidate beats the live rules OUT-OF-SAMPLE with enough alerts (30+)? What is its trade-off (winners dropped)? Are the data checks clean? Approve at most one, then bump `RULES_VERSION`.
 
 1. **Plumbing:** did "Bot started" arrive every trading day? Did every summary and journal entry arrive? Any failed run?
 2. **Alert threshold:** alerted (70+) vs silent (65-69.9) win rate and average P&L. Close → lower `ALERT_SCORE`; clearly worse → keep.

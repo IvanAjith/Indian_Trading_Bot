@@ -16,7 +16,7 @@ Score components (each 0-100, then weighted-averaged):
                     but flag extreme IV (>90th pct) as "expensive/event risk"
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pandas as pd
 
@@ -38,6 +38,7 @@ class ScreenResult:
     iv_pct: float
     trigger_reasons: list  # human-readable technical triggers that fired
     notes: str
+    parts: dict = field(default_factory=dict)   # score breakdown: mom, vol, oi, iv, penalty, bonus (for the journal / rule lab)
 
 
 def _momentum_score(closes: pd.Series) -> tuple[float, str, float]:
@@ -136,7 +137,7 @@ def needs_option_chain(snapshot: UnderlyingSnapshot, margin: float = 1.0) -> boo
     r = screen_symbol(snapshot)
     if r.bias == "NEUTRAL":
         return False
-    floor = (min(config.WATCHLIST_MIN_SCORE, config.MIN_SIGNAL_SCORE)
+    floor = (config.WATCHLIST_MIN_SCORE   # (silent tracking below it is best-effort in two-stage scans; full scans see everything)
              - W_OI * (OI_SCORE_MAX - OI_SCORE_UNKNOWN) - max(config.CONTINUATION_BONUS, 0.0) - margin)
     return r.score >= floor
 
@@ -165,6 +166,7 @@ def screen_symbol(snapshot: UnderlyingSnapshot) -> ScreenResult:
     trigger_reasons = []
     extra_notes = []
     stretched = False
+    applied_penalty = applied_bonus = 0.0
     if bias in ("BULLISH", "BEARISH"):
         trigger_reasons = trig.collect_triggers(snapshot.history, bullish=(bias == "BULLISH"))
         if vol_ratio >= config.MIN_VOLUME_SPIKE_RATIO:
@@ -179,12 +181,14 @@ def screen_symbol(snapshot: UnderlyingSnapshot) -> ScreenResult:
         stretched = (bias == "BULLISH" and r >= config.STRETCHED_RSI_HIGH) or (bias == "BEARISH" and r <= config.STRETCHED_RSI_LOW)
         if stretched and not is_idx and config.STRETCHED_RSI_PENALTY:
             composite -= config.STRETCHED_RSI_PENALTY
+            applied_penalty = float(config.STRETCHED_RSI_PENALTY)
             extra_notes.append(f"RSI {r:.0f} is stretched (-{config.STRETCHED_RSI_PENALTY:g})")
         # continuation: strong same-direction move today + agreeing OI build-up + trend not stretched
         if snapshot.prev_close and config.CONTINUATION_BONUS and not stretched:
             move = (snapshot.spot / snapshot.prev_close - 1) * 100 * (1 if bias == "BULLISH" else -1)
             if move >= config.CONTINUATION_MIN_MOVE_PCT and oi_sig in ("long_buildup", "short_buildup") and oi_agrees(oi_sig, bias):
                 composite += config.CONTINUATION_BONUS
+                applied_bonus = float(config.CONTINUATION_BONUS)
                 trigger_reasons.append(f"strong {move:+.1f}% move today in this direction with agreeing open interest")
 
     notes = []
@@ -207,6 +211,8 @@ def screen_symbol(snapshot: UnderlyingSnapshot) -> ScreenResult:
         iv_pct=round(iv_pct, 1),
         trigger_reasons=trigger_reasons,
         notes="; ".join(notes) if notes else "clean setup",
+        parts={"mom": round(float(mom_score), 2), "vol": round(float(vol_score), 2), "oi": float(oi_score),
+               "iv": float(iv_score), "penalty": applied_penalty, "bonus": applied_bonus},
     )
 
 

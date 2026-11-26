@@ -93,6 +93,7 @@ def facts(pos) -> dict:
         "is_index": bool(ctx.get("is_index")), "manual": bool(ctx.get("manual")),
         "alerted": not getattr(pos, "shadow", False),
         "variant": ctx.get("variant"), "strike_pick": ctx.get("strike_pick"),
+        "score_parts": ctx.get("score_parts"), "rules_version": ctx.get("rules_version"),
         "lots": pos.lots_total, "lot_size": pos.lot_size, "n_targets": pos.n_targets,
         "entry": entry, "cost_per_lot": round(entry * pos.lot_size, 2),
         "stoploss": None, "target1": pos.target1, "target2": pos.target2, "target3": pos.target3,

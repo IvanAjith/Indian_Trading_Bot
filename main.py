@@ -201,7 +201,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         "day_log": _fresh_day_log(), "watchlisted_today": set(),
         "eod_warned_today": set(), "last_snap_by_symbol": {},
         "scans": 0, "symbols_scanned": 0, "scan_secs": [], "suppressed_logged": set(),
-        "alerts_sent_today": 0, "daily_cap_hit": False, "skipped_budget": {}, "shadow_symbols": set(), "shadow_cheaper": set(), "last_scan_done_at": None, "preloaded": False,
+        "alerts_sent_today": 0, "daily_cap_hit": False, "skipped_budget": {}, "shadow_symbols": set(), "shadow_cheaper": set(), "silent_count": 0, "last_scan_done_at": None, "preloaded": False,
         "alerts_by_symbol": {s.strip().upper(): 1 for s in (already_alerted or []) if s.strip()}, "closed_checked": not skip_if_closed,
         "watchlist_score_history": {},  # {(symbol, bias): last-seen score} -
                                         # used to only alert when a setup is
@@ -416,6 +416,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             return
         if config.SILENT_TRACK_UNTIL and dt.datetime.now().strftime("%H:%M") >= config.SILENT_TRACK_UNTIL:
             return   # too close to the square-off to teach anything
+        if config.SILENT_MAX_PER_DAY and state["silent_count"] >= config.SILENT_MAX_PER_DAY:
+            return
         if r.symbol in state["shadow_symbols"] or state["alerts_by_symbol"].get(r.symbol, 0):
             return
         snap_s = snap_by_symbol.get(r.symbol)
@@ -433,6 +435,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             idea_s.context["nifty_chg_pct"] = round((nifty_s.spot / nifty_s.prev_close - 1) * 100, 2)
         if account.open_trade(idea_s, shadow=True) is not None:
             state["shadow_symbols"].add(r.symbol)
+            state["silent_count"] += 1
             print(f"[monitor] silent tracking: {r.symbol} {idea_s.option_type} (score {r.score:.1f}; "
                   f"{'after the ' + config.NO_ALERTS_AFTER + ' cutoff' if r.score >= config.ALERT_SCORE else 'below ' + format(config.ALERT_SCORE, '.0f')})")
 
@@ -712,6 +715,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 state["alerts_by_symbol"] = {}
                 state["alerts_sent_today"], state["shadow_symbols"] = 0, set()
                 state["shadow_cheaper"] = set()
+                state["silent_count"] = 0
                 state["daily_cap_hit"], state["skipped_budget"] = False, {}
                 state["day_log"] = _fresh_day_log()
                 if account:
