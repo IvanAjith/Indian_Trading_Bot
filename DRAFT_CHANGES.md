@@ -77,7 +77,7 @@ Full write-up: `journal/notes/2026-11-26-silent-winners.md` on the journal-data 
 - BUILT 26 Nov evening on Ajith's request: D4a (OI direction-aware), D4b (stretched RSI -5, stocks only), D4c (continuation +6). In-sample replay of 26 Nov: 7 alerts, 5 wins, +Rs 16,769 vs 6 alerts, 3 wins, -Rs 1,806 actual (fitted to that day - NOT evidence).
 
 ## Ideas log (add below)
-- (none yet)
+- (26 Nov, Ajith) Use SUPPORT and RESISTANCE of each underlying to judge the strike/premium: today the strike chooser only checks the nearest open-interest wall (a crude resistance/support proxy). Idea: from the 60-day daily history compute swing highs/lows, the 20-day high/low and round-number levels; for a call, check that Target 1 (and 2) on the underlying sit BEFORE the nearest resistance (for a put: before the nearest support), and prefer a strike whose target stays inside that room. Candidate for the nightly rule lab first (replay on the journal: do trades with room to the next level reach T1 more often?), then live. Not built.
 
 ## POST-SESSION ANALYSIS CHECKLIST (26 Nov 2026, after 15:12 IST) - do this before any change
 Sources: run #9 log (run id 45754452588 / monitor.log artifact), journal-data branch (journal/2026-11-26.md, trades.jsonl), the end-of-day
