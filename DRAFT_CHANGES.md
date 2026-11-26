@@ -19,13 +19,16 @@ Answers from Ajith (26 Nov 2026) - now the agreed draft rules:
 3. **No limit** on how many extra alerts per underlying per day - as long as the score is above 80 (and the other rules pass,
    e.g. 14:45 cutoff and the Rs 35,000 budget).
 4. Applies to **all indexes and stocks**.
-5. After a profit the new call must be **at least one strike step away** from the previous call's strike (any other strike, one step minimum).
+5. After a profit the new call must be at a **different strike** (any number of steps away, justified by the analysis) from every profitable call that day on that underlying.
    After a loss the **same strike is allowed**.
 6. Applies to **both CE and PE** (direction does not matter; the rule is per underlying).
 
-Still to confirm (small): a trade closed at the 15:10 time exit without T1 - treat as loss (suggested). And whether the
-"one step away" rule compares with the LAST profitable call or with ALL earlier calls that day (suggested: all earlier calls
-that day that made profit).
+Final answers (Ajith, 26 Nov 2026):
+- A trade closed by the **15:10 time exit** without reaching T1 is judged by its actual result: **positive P&L = profit, negative = loss**.
+  (Reached T1 = profit; stoploss = loss.)
+- The new strike after a profit is checked against **ALL of that day's profitable calls** on the underlying, not just the last one.
+- The new strike does NOT have to be exactly one step away: **any number of steps is allowed**, but the choice must be logical, well analysed
+  (see D2 criteria) and the score must be good enough (above 80). No random strike.
 
 Where it lives: `main.py` `_alert_block_reason` and the re-alert state (`alerts_by_symbol`); needs the closed-trade result per underlying
 from `paper_trader` (positions closed today) and the strike of the last call. Keep silent tracking of blocked signals.
