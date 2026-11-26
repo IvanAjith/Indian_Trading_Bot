@@ -243,6 +243,8 @@ def build_trade_idea(snapshot: UnderlyingSnapshot, screen_result: ScreenResult, 
             "spot_chg_pct": round((snapshot.spot / snapshot.prev_close - 1) * 100, 2) if snapshot.prev_close else None,
             "is_index": is_index(snapshot.symbol),
             "cost_per_lot": round(entry * max(int(leg.lot_size or 1), 1), 2),
+            "score_parts": dict(getattr(screen_result, "parts", {}) or {}),
+            "rules_version": config.RULES_VERSION,
             **({"strike_pick": list(strike_pick["reasons"]), "variant": "reasoned_strike"} if strike_pick else {}),
         },
     )

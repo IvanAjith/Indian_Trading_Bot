@@ -75,7 +75,8 @@ MAX_ALERTS_PER_DAY = None        # optional hard limit on alerts per day (None =
 MAX_COST_PER_LOT = 35000         # skip signals whose contract costs more than this for ONE lot
                                  # (premium x lot size). Matches a small account: Rs1 lakh = ~3 such trades.
                                  # None = no budget filter. Skipped signals are counted in the daily summary.
-MIN_SIGNAL_SCORE = 65.0          # floor for any signal at all (65-69.9 are tracked silently, see ALERT_SCORE above)
+MIN_SIGNAL_SCORE = 60.0          # floor for any signal at all: 60-69.9 are tracked SILENTLY (journal only; heads-ups still need 65+).
+                                 # Lowered from 65 on 26 Nov 2026 so the nightly rule lab can test rules that lift a 61-64 signal into the alert range.
                                   # (old comment follows) quality floor - below this, don't surface it
                                   # at all rather than filling out the count.
                                   # Some days will genuinely have 0-2 signals.
@@ -294,3 +295,14 @@ STRETCHED_RSI_LOW = 30
 #    weekly review checks them from now on, and they must be re-checked at the 11 Dec and 18 Dec checkpoints.
 CONTINUATION_BONUS = 6.0
 CONTINUATION_MIN_MOVE_PCT = 2.0
+
+# ---------------------------------------------------------------------------
+# Learning loop (added 26 Nov 2026) - learn every night, change the live rules only at the weekly meeting
+# ---------------------------------------------------------------------------
+# RULES_VERSION is stamped on every journal row, so the nightly rule lab knows which rules produced each score.
+# Change it ONLY when the live scoring rules change (after a weekly-meeting decision).
+RULES_VERSION = "v2-2026-11-26"
+# Cap on silent paper trades per day (the lower 60-64.9 band adds trades; this keeps quote traffic bounded).
+SILENT_MAX_PER_DAY = 40
+# After each session the bot writes a nightly learning report (journal/lab/) and sends a short note to Telegram.
+NIGHTLY_LEARNING_TELEGRAM = True

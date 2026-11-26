@@ -103,6 +103,15 @@ Each symbol gets a 0-100 **score**:
   in the way; of what passes, the strike closest to the money. Over-budget signals are paper-traded **silently** at
   that strike (`CHEAPER_STRIKE_SHADOW`) so the journal shows whether it works; real alerts for it stay off
   (`CHEAPER_STRIKE_ALERTS = False`) until the journal supports it. An alert at such a strike says why it was chosen.
+- **Learning loop (nightly lab, weekly decisions).** The live scoring rules stay fixed for the week (stamped on every journal row as
+  `RULES_VERSION`). After every session `rule_lab.py` replays **candidate rules** (RSI cap, a doubled stretched penalty, a bigger
+  continuation bonus, "OI must agree", "move 1%+ with the trade", an entry-time window) on the journal and writes
+  `journal/lab/<date>.md` and `journal/lab/candidates.md` on the `journal-data` branch, plus a short Telegram note. Each candidate is judged on
+  **out-of-sample days only** (days after it was proposed, clean data, live volume); it shows the trade-off (winners dropped, losers avoided,
+  new alerts) and says "too early" until about 30 out-of-sample alerts. Nightly **data checks** flag stale volume days, missing fields,
+  duplicates, scores that do not match their parts and silent trades after the stop. The weekly review includes the lab table. A person
+  approves **at most one rule change per week**; then bump `RULES_VERSION`. Silent tracking now starts at score 60 (`MIN_SIGNAL_SCORE`,
+  at most `SILENT_MAX_PER_DAY` = 40 per day); heads-ups still need 65+.
 - **Faster scans (two-stage).** A scan used to download option quotes for ~100 symbols (about 90 s), so alerts and
   heads-ups arrived in bursts, minutes late. Now stage 1 prices every symbol and scores it without the option-OI part;
   stage 2 downloads option chains only for symbols that could still reach the heads-up band (the OI part can add at most
@@ -309,6 +318,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `CHEAPER_STRIKE_SHADOW`, `CHEAPER_STRIKE_ALERTS`, `STRIKE_MIN_DELTA`, `STRIKE_MAX_MOVE_ATR_FRAC`, `STRIKE_MIN_VOLUME`, `STRIKE_MIN_OI`, `STRIKE_OI_WALL_RATIO` | True, False, 0.25, 0.35, 200, 1000, 1.5 | Reasoned strike choice: silent test on, real alerts off |
 | `TWO_STAGE_SCAN`, `TWO_STAGE_FULL_EVERY`, `PRELOAD_BEFORE_OPEN`, `SILENT_TRACK_UNTIL` | True, 20, True, 14:55 | Faster scans (option chains only where they can matter), history pre-loaded before the open, no silent trades in the last 15 minutes |
 | `OI_DIRECTION_AWARE`, `STRETCHED_RSI_PENALTY`, `STRETCHED_RSI_HIGH/LOW`, `CONTINUATION_BONUS`, `CONTINUATION_MIN_MOVE_PCT` | True, 5, 70/30, 6, 2.0 | Score changes learned from the 26 Nov silent winners (set a penalty/bonus to 0 to switch it off) |
+| `RULES_VERSION`, `SILENT_MAX_PER_DAY`, `NIGHTLY_LEARNING_TELEGRAM`, `MIN_SIGNAL_SCORE` | v2-2026-11-26, 40, True, 60 | Learning loop: rule version stamp, silent-trade cap, nightly Telegram note, silent-tracking floor |
 | `QUICK_CHECK_SECONDS` | 20 | Open trades are re-priced this often between full scans |
 | `PAPER_TRACK_ALL_SIGNALS` | True | Paper-trade every alert (no position cap) |
 | `MAX_CAPITAL_PER_TRADE_PCT`, `MAX_TRADES_PER_DAY` | 5, 3 | Risk per trade / max open positions (the cap applies only if tracking-all is False) |

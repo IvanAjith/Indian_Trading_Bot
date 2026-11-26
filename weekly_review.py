@@ -246,6 +246,14 @@ def render(week_rows, all_rows, period: str) -> str:
     for code, fs in a_all["good_factors"].items():
         w, wo = fs["with"], fs["without"]
         L.append(f"| {jr.GOOD_FACTORS[code]} | {w['n']} / {w['win_rate']:.0f}% | {wo['n']} / {wo['win_rate']:.0f}% |")
+    try:
+        import rule_lab
+        L += [""] + rule_lab.candidates_markdown(all_rows)
+        counts, _, clean = rule_lab.data_checks(all_rows)
+        L += ["### Data checks", "", f"- {clean} of {len(all_rows)} journal rows are clean. " +
+              ("; ".join(f"{k}: {n}" for k, n in counts.most_common(6)) or "No issues.")]
+    except Exception as exc:   # the lab must never break the weekly review
+        L += ["", f"(rule lab unavailable: {exc})"]
     mw = missed_winners(all_rows)
     L += ["", "## Silent trades that reached Target 1 - the ones we did not alert (what to learn)", ""]
     if mw["won"]:
@@ -290,6 +298,13 @@ def digest(week_rows, all_rows, period: str) -> str:
     if a_week["reasons"]:
         top = ", ".join(f"{jr.RISK_FACTORS[c][0]} ({n})" for c, n in a_week["reasons"].most_common(3))
         lines.append(f"Most common warning signs in losers: {top}.")
+    try:
+        import rule_lab
+        counts, _, clean = rule_lab.data_checks(all_rows)
+        lines.append(f"Rule lab: {len(rule_lab.CANDIDATES)} candidate rules replayed nightly (live rules unchanged); "
+                     f"{clean} of {len(all_rows)} journal rows clean. Only out-of-sample days count - see journal/lab/candidates.md.")
+    except Exception:
+        pass
     mw = missed_winners(all_rows)
     if mw["won"]:
         names = ", ".join(f"{r['symbol']}" for r in mw["won"][:6])

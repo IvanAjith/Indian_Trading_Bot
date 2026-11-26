@@ -99,6 +99,8 @@ jobs:
           rm -rf /tmp/jdata
           git clone --quiet --depth 1 --branch journal-data "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" /tmp/jdata
           python save_journal.py journal /tmp/jdata/journal
+          # Nightly learning report (journal/lab/) + a short Telegram note; a problem here must never block the journal save
+          python rule_lab.py --journal-dir /tmp/jdata/journal --telegram || echo "rule lab failed (not fatal)"
           cd /tmp/jdata
           git add -A
           git diff --cached --quiet && { echo "Nothing new to commit."; exit 0; }
