@@ -83,11 +83,29 @@ Each symbol gets a 0-100 **score**:
   can fall past the stop (plus the assumed 1% sell slippage).
 - The paper account is ₹10 lakh; trades whose planned size risks more than the 5% max-loss rule on that capital are
   flagged ⚠️oversize (information only).
-- **One alert per stock/index per day.** Once NIFTY (or any stock) has produced an entry alert, the bot sends
-  **nothing more on it for the rest of the day** - no entry alert and no heads-up, CE or PE, any strike, and
-  regardless of how that trade ends (targets hit, stoploss hit, or still open). Trades you register with
-  `/add` count as that symbol's alert. The only exception: a new signal scoring **90 or more**
-  (`REALERT_MIN_SCORE`), at most once more per symbol per day (`REALERT_MAX_PER_DAY`).
+- **One open call per stock/index at a time; repeats only under strict rules.** The first alert of the day on a
+  stock/index is always allowed. A **second (or later) alert** on the same name is sent only if **all** hold:
+  the earlier call is **closed** (never while it is open); the new score is **above 80** (`REALERT_MIN_SCORE`); and
+  the contract passes the strike rule - after a **profit** (the earlier call reached Target 1, or closed in the green
+  at the square-off) the new call must be at a **different strike** from every profitable call that day; after a
+  **loss** the same strike is allowed. Indexes and stocks, CE and PE, no daily limit. A name that has alerted gets
+  no heads-up. Trades you register with `/add` count as that symbol's alert.
+- **Reasoned strike choice.** If the at-the-money contract costs more than ₹35,000 per lot, or a repeat call must
+  avoid an earlier strike, the bot looks along the option chain (ATM ±3 strikes) and picks a strike by reasons:
+  cost within budget, delta (estimated from neighbouring strikes) at least 0.25, the move needed for Target 1 a
+  realistic share of the usual daily range, enough volume and open interest, and no big opposing open-interest wall
+  in the way; of what passes, the strike closest to the money. Over-budget signals are paper-traded **silently** at
+  that strike (`CHEAPER_STRIKE_SHADOW`) so the journal shows whether it works; real alerts for it stay off
+  (`CHEAPER_STRIKE_ALERTS = False`) until the journal supports it. An alert at such a strike says why it was chosen.
+- **Faster scans (two-stage).** A scan used to download option quotes for ~100 symbols (about 90 s), so alerts and
+  heads-ups arrived in bursts, minutes late. Now stage 1 prices every symbol and scores it without the option-OI part;
+  stage 2 downloads option chains only for symbols that could still reach the heads-up band (the OI part can add at most
+  9 points), plus the indexes and anything you hold - their scores are identical to a full scan. The first scan of the day
+  and every 20th scan are full (`TWO_STAGE_SCAN`, `TWO_STAGE_FULL_EVERY`). While waiting for the open the bot downloads the
+  daily history (`PRELOAD_BEFORE_OPEN`), so the first scan is quick. Silent tracking stops at 14:55 (`SILENT_TRACK_UNTIL`).
+- **Volume is live.** Today's traded volume is read from the live quote on every scan (an earlier version used a
+  daily candle cached for 4 hours, which made morning scores too low and caused an alert burst at the refresh).
+  `VOLUME_TIME_ADJUST` (off by default) can compare volume with what is usual by this time of day.
 - **Every alert is paper-traded** (`PAPER_TRACK_ALL_SIGNALS`), so `/trades` and `paper_trades.csv` match
   your alerts one-to-one. No cap on open positions.
 - **Lot size** comes from Angel One's contract list (e.g. NIFTY 65, BANKNIFTY 30). If you set
@@ -280,7 +298,11 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `STOPLOSS_PCT`, `TARGET_PCT_T1/T2/T3` | 18, 15/30/50 | Stop and targets on the option price |
 | `LOTS_PER_TRADE_INDEX`, `TARGETS_INDEX`, `LOTS_PER_TRADE_STOCK`, `TARGETS_STOCK` | 3, 3, 2, 2 | Lots bought and number of targets for index trades and for stock trades (1 lot sold at each target) |
 | `MOVE_SL_TO_COST_AFTER_T1`, `TRAIL_SL_TO_T1_AFTER_T2` | True, True | Stop to cost after T1; for index trades, stop to the T1 price after T2 |
-| `ONE_ALERT_PER_UNDERLYING_PER_DAY`, `REALERT_MIN_SCORE`, `REALERT_MAX_PER_DAY` | True, 90, 1 | One alert per stock/index per day; only a score of 90+ can alert it once more |
+| `ONE_ALERT_PER_UNDERLYING_PER_DAY`, `REALERT_MIN_SCORE`, `REALERT_MAX_PER_DAY` | True, 80, None | Repeat alerts on the same stock/index: earlier call closed, score above 80, different strike after a profit (same strike allowed after a loss), no daily limit |
+| `VOLUME_TIME_ADJUST`, `VOLUME_DAY_PROFILE` | False | Compare volume with the usual volume by this time of day (off: plain 20-day average) |
+| `CHEAPER_STRIKE_SHADOW`, `CHEAPER_STRIKE_ALERTS`, `STRIKE_MIN_DELTA`, `STRIKE_MAX_MOVE_ATR_FRAC`, `STRIKE_MIN_VOLUME`, `STRIKE_MIN_OI`, `STRIKE_OI_WALL_RATIO` | True, False, 0.25, 0.35, 200, 1000, 1.5 | Reasoned strike choice: silent test on, real alerts off |
+| `TWO_STAGE_SCAN`, `TWO_STAGE_FULL_EVERY`, `PRELOAD_BEFORE_OPEN`, `SILENT_TRACK_UNTIL` | True, 20, True, 14:55 | Faster scans (option chains only where they can matter), history pre-loaded before the open, no silent trades in the last 15 minutes |
+| `QUICK_CHECK_SECONDS` | 20 | Open trades are re-priced this often between full scans |
 | `PAPER_TRACK_ALL_SIGNALS` | True | Paper-trade every alert (no position cap) |
 | `MAX_CAPITAL_PER_TRADE_PCT`, `MAX_TRADES_PER_DAY` | 5, 3 | Risk per trade / max open positions (the cap applies only if tracking-all is False) |
 | `PAPER_SLIPPAGE_PCT`, `PAPER_STARTING_CAPITAL` | 1.0, 10,00,000 | Paper-trading realism |

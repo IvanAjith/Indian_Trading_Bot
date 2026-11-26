@@ -59,10 +59,28 @@ def _momentum_score(closes: pd.Series) -> tuple[float, str, float]:
     return score, bias, float(r)
 
 
-def _volume_score(day_volume: int, avg_20d: float) -> tuple[float, float]:
+def _day_share(now=None) -> float:
+    """Share of a normal day's volume usually traded by this IST time (config.VOLUME_DAY_PROFILE), 0..1."""
+    import datetime as _dt
+    now = now or _dt.datetime.now()
+    cur = now.hour * 60 + now.minute
+    pts = [(int(t[:2]) * 60 + int(t[3:]), f) for t, f in config.VOLUME_DAY_PROFILE]
+    if cur <= pts[0][0]:
+        return pts[0][1]
+    for (t0, f0), (t1, f1) in zip(pts, pts[1:]):
+        if cur <= t1:
+            return f0 + (f1 - f0) * (cur - t0) / (t1 - t0)
+    return pts[-1][1]
+
+
+def _volume_score(day_volume: int, avg_20d: float, now=None) -> tuple[float, float]:
     if avg_20d <= 0:
         return 50.0, 1.0
-    ratio = day_volume / avg_20d
+    if getattr(config, "VOLUME_TIME_ADJUST", False):
+        share = max(_day_share(now), config.VOLUME_PROFILE_MIN_SHARE)
+        ratio = day_volume / (avg_20d * share)
+    else:
+        ratio = day_volume / avg_20d
     score = min(100.0, max(0.0, (ratio - 1) * 60 + 40))
     return score, ratio
 
@@ -70,7 +88,7 @@ def _volume_score(day_volume: int, avg_20d: float) -> tuple[float, float]:
 def _oi_signal(snapshot: UnderlyingSnapshot, bias_hint: str) -> tuple[str, float]:
     # Use ATM strike OI change as a proxy for "where the crowd is positioned".
     if not snapshot.option_chain:
-        return "unknown", 50.0
+        return "unknown", OI_SCORE_UNKNOWN
     atm = min(snapshot.option_chain, key=lambda q: abs(q.strike - snapshot.spot))
     same_strike_legs = [q for q in snapshot.option_chain if q.strike == atm.strike]
     ce = next((q for q in same_strike_legs if q.option_type == "CE"), None)
@@ -78,14 +96,31 @@ def _oi_signal(snapshot: UnderlyingSnapshot, bias_hint: str) -> tuple[str, float
     price_up = snapshot.spot >= snapshot.prev_close
 
     if ce and ce.oi_change_pct >= config.MIN_OI_CHANGE_PCT and price_up:
-        return "long_buildup", 80.0
+        return "long_buildup", OI_SCORE_MAX
     if pe and pe.oi_change_pct >= config.MIN_OI_CHANGE_PCT and not price_up:
-        return "short_buildup", 80.0
+        return "short_buildup", OI_SCORE_MAX
     if ce and ce.oi_change_pct <= -config.MIN_OI_CHANGE_PCT and not price_up:
         return "long_unwinding", 55.0
     if pe and pe.oi_change_pct <= -config.MIN_OI_CHANGE_PCT and price_up:
         return "short_covering", 55.0
     return "flat", 45.0
+
+
+# composite weights (single source of truth for screen_symbol and needs_option_chain)
+W_MOM, W_VOL, W_OI, W_IV = 0.40, 0.20, 0.30, 0.10
+OI_SCORE_UNKNOWN, OI_SCORE_MAX = 50.0, 80.0   # no option chain -> 50; the best case (long/short build-up) -> 80
+
+
+def needs_option_chain(snapshot: UnderlyingSnapshot, margin: float = 1.0) -> bool:
+    """Two-stage scan, stage 1: can this symbol still reach WATCHLIST_MIN_SCORE once its option-chain (OI) part is known?
+    `snapshot` has no option chain, so its score uses a neutral OI part (50). The real OI part is at most 80, which adds at most
+    W_OI * (80 - 50) = 9 points. So a symbol whose chain-less score is below the floor minus that uplift can never reach the
+    watch/alert band, and downloading its option quotes would be wasted. A neutral (no clear trend) symbol never alerts either."""
+    r = screen_symbol(snapshot)
+    if r.bias == "NEUTRAL":
+        return False
+    floor = min(config.WATCHLIST_MIN_SCORE, config.MIN_SIGNAL_SCORE) - W_OI * (OI_SCORE_MAX - OI_SCORE_UNKNOWN) - margin
+    return r.score >= floor
 
 
 def screen_symbol(snapshot: UnderlyingSnapshot) -> ScreenResult:
@@ -103,10 +138,10 @@ def screen_symbol(snapshot: UnderlyingSnapshot) -> ScreenResult:
     iv_score = 70.0 if 30 <= iv_pct <= 85 else 45.0
 
     composite = (
-        0.40 * mom_score +
-        0.20 * vol_score +
-        0.30 * oi_score +
-        0.10 * iv_score
+        W_MOM * mom_score +
+        W_VOL * vol_score +
+        W_OI * oi_score +
+        W_IV * iv_score
     )
 
     trigger_reasons = []

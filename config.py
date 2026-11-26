@@ -140,8 +140,14 @@ ONE_ALERT_PER_UNDERLYING_PER_DAY = True   # once a stock/index has produced an e
                                    # further alert or watch message on it for the rest of the day - whether
                                    # that trade hit its targets, hit the stoploss, or is still open; CE or PE,
                                    # any strike. (Trades you add with /add count as that stock's alert.)
-REALERT_MIN_SCORE = 90.0           # ...unless a new signal on it scores at least this much (exceptional)
-REALERT_MAX_PER_DAY = 1            # at most this many such exceptional extra alerts per stock/index per day
+# Second (and later) alerts on the same stock/index the same day - allowed only when ALL of these hold:
+#   - the previous call on it is CLOSED (never while it is still open),
+#   - the new signal's score is ABOVE REALERT_MIN_SCORE,
+#   - if a previous call was a PROFIT (reached Target 1, or closed in the green at the square-off), the new call
+#     must be at a DIFFERENT strike from every profitable call that day; after a LOSS the same strike is fine.
+# Applies to indexes and stocks, CE and PE. No daily limit (REALERT_MAX_PER_DAY = None).
+REALERT_MIN_SCORE = 80.0
+REALERT_MAX_PER_DAY = None         # None = no limit on extra alerts per underlying per day
 PAPER_TRACK_ALL_SIGNALS = True     # paper-trade EVERY alert the bot sends, so paper_trades.csv
                                    # and /trades match your alerts one-to-one. No cap on open
                                    # positions, and if one lot is bigger than the 5%-risk rule
@@ -216,3 +222,55 @@ STATUS_POLL_INTERVAL_SECONDS = 15   # how often to check Telegram for a "status"
 TELEGRAM_ENABLED = True
 TELEGRAM_BOT_TOKEN = ""   # intentionally blank - set TB_TELEGRAM_TOKEN instead
 TELEGRAM_CHAT_ID = ""     # intentionally blank - set TB_TELEGRAM_CHAT_ID instead
+
+
+# ---------------------------------------------------------------------------
+# Volume factor (added 26 Nov 2026)
+# ---------------------------------------------------------------------------
+# The screener compares today's traded volume with the 20-day average. The bot now uses the LIVE traded volume from the
+# quote on every scan (before, it used a daily candle cached for 4 hours, which made morning scores too low and caused a
+# burst of alerts when the cache refreshed).
+# Optional (OFF by default): compare with the volume that is usual BY THIS TIME OF DAY instead of a full day's average,
+# so morning and afternoon signals are treated fairly. Turn on only after reviewing the journal.
+VOLUME_TIME_ADJUST = False
+# Share of a normal day's volume traded by each IST time (approximate NSE profile, used when VOLUME_TIME_ADJUST is on).
+VOLUME_DAY_PROFILE = [("09:15", 0.00), ("09:30", 0.12), ("10:15", 0.25), ("11:15", 0.38), ("12:15", 0.50),
+                      ("13:15", 0.60), ("14:15", 0.72), ("15:00", 0.88), ("15:30", 1.00)]
+VOLUME_PROFILE_MIN_SHARE = 0.10    # never divide by less than this share (avoids huge ratios in the first minutes)
+
+# ---------------------------------------------------------------------------
+# Reasoned strike choice (added 26 Nov 2026)
+# ---------------------------------------------------------------------------
+# When the at-the-money contract costs more than MAX_COST_PER_LOT, or a repeat call must use a different strike, the bot
+# looks along the option chain (ATM +-3 strikes) and picks the strike by reasons - never "any strike that fits the budget":
+#   1. cost per lot <= MAX_COST_PER_LOT;  2. delta (estimated from neighbouring strikes) >= STRIKE_MIN_DELTA;
+#   3. the underlying move needed for Target 1 <= STRIKE_MAX_MOVE_ATR_FRAC x the average daily range (ATR);
+#   4. enough traded volume and open interest (liquidity);  5. not beyond a big opposing open-interest wall;
+#   6. of what passes, the one CLOSEST to the money (highest delta). The alert states the reasons.
+# CHEAPER_STRIKE_SHADOW: every over-budget signal is paper-traded SILENTLY at the reasoned strike, so the journal shows whether it works.
+# CHEAPER_STRIKE_ALERTS: send real alerts for the reasoned strike (OFF until the journal supports it).
+CHEAPER_STRIKE_SHADOW = True
+CHEAPER_STRIKE_ALERTS = False
+STRIKE_MIN_DELTA = 0.25
+STRIKE_MAX_MOVE_ATR_FRAC = 0.35
+STRIKE_MIN_VOLUME = 200
+STRIKE_MIN_OI = 1000
+STRIKE_OI_WALL_RATIO = 1.5         # an opposing OI "wall" = a strike with at least this x the OI of the candidate
+
+# ---------------------------------------------------------------------------
+# Scan speed and timing (added 26 Nov 2026)
+# ---------------------------------------------------------------------------
+# Most scan time went on downloading option quotes for ~100 symbols every scan (about 90 s per scan, so alerts and heads-ups
+# arrived in bursts, minutes after a score crossed its threshold). Two-stage scan: stage 1 prices every symbol (spot + daily
+# history, no option chain) and scores it without the option-OI part; stage 2 downloads option chains only for symbols that could
+# still reach WATCHLIST_MIN_SCORE once the OI part is added (the OI part can add at most 9 points - see screener.needs_option_chain),
+# plus the indexes and anything you hold. The scores of those symbols are identical to a full scan; the rest could not alert
+# anyway. Every TWO_STAGE_FULL_EVERY-th scan (and the first of the day) is a full scan.
+TWO_STAGE_SCAN = True
+TWO_STAGE_FULL_EVERY = 20
+# Before 09:20 the bot used to sit idle, then spend ~10 minutes downloading daily history for every symbol during the first scan.
+# Now it downloads that history while it waits (from the moment it starts), so the first scan is quick.
+PRELOAD_BEFORE_OPEN = True
+# Silent tracking (paper trades below 70 or after the cutoff, journal only) stops at this time: a trade opened with a few minutes
+# before the 15:10 square-off teaches nothing.
+SILENT_TRACK_UNTIL = "14:55"

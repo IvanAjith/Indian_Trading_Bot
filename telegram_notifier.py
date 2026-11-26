@@ -59,6 +59,8 @@ def _now_str() -> str:
 def format_signal_message(idea) -> str:
     expiry_short = _format_expiry_short(idea.expiry)
     reasons = "; ".join(idea.reasons) if idea.reasons else "momentum setup"
+    pick = (getattr(idea, "context", {}) or {}).get("strike_pick")
+    strike_line = ("\U0001F9ED Strike chosen because: " + "; ".join(pick) + "\n\n") if pick else ""
     t3_line = (f"\U0001F3AF Target 3: ₹{idea.target3:.2f}\n"
                if getattr(idea, "n_targets", 3) >= 3 else "")
     return (
@@ -76,6 +78,7 @@ def format_signal_message(idea) -> str:
         f"\U0001F4C8 Est. success probability: {idea.win_probability:.0f}% "
         f"<i>(heuristic, not a guarantee)</i>\n\n"
         f"\U0001F4A1 Why: {reasons}\n\n"
+        f"{strike_line}"
         f"⚡ Act now!"
     )
 
@@ -323,9 +326,10 @@ def format_trades_summary(positions: list, live_price) -> str:
         booked = round(sum(f.pnl for f in p.fills), 2)
         booked_total += booked
         nets.append(booked)
-        how = "/".join(dict.fromkeys(f.level for f in p.fills)) or "-"
+        names = {"SL": "stop", "TIME": "square-off", "MANUAL": "manual close"}
+        how = ", then ".join(names.get(lv, lv) for lv in dict.fromkeys(f.level for f in p.fills)) or "-"
         closed_lines.append(f"{'✅' if booked >= 0 else '❌'} {p.symbol} {fmt_strike(p.strike)} "
-                            f"{p.option_type} - closed at {how} - booked {_money(booked)}")
+                            f"{p.option_type} - exits: {how} - booked {_money(booked)}")
 
     profit = round(sum(n for n in nets if n > 0), 2)
     loss = round(sum(n for n in nets if n < 0), 2)

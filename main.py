@@ -19,8 +19,8 @@ import time
 
 import config
 from data_fetcher import get_provider
-from screener import rank_universe, watchlist_candidates
-from strategy import build_trade_idea, _pick_strike
+from screener import rank_universe, watchlist_candidates, needs_option_chain
+from strategy import pick_reasoned_strike, build_trade_idea, _pick_strike
 from paper_trader import PaperTradingAccount
 from telegram_notifier import (
     notify_new_signals, send_telegram_message, format_exit_message, poll_status_requests,
@@ -42,7 +42,7 @@ def _default_universe():
     return [(s, True) for s in config.INDEX_UNIVERSE] + [(s, False) for s in config.STOCK_UNIVERSE]
 
 
-def fetch_all_snapshots(provider):
+def fetch_all_snapshots(provider, chain_filter=None):
     universe = provider.get_universe() if hasattr(provider, "get_universe") else _default_universe()
     # A stock/index with an open trade must ALWAYS be scanned, even if it dropped out of today's ranking.
     scanned = {s for s, _ in universe}
@@ -52,6 +52,8 @@ def fetch_all_snapshots(provider):
     # Fast path: providers that can fetch many symbols per API call (Angel One).
     if hasattr(provider, "get_snapshots"):
         try:
+            if chain_filter is not None:
+                return provider.get_snapshots(universe, chain_filter=chain_filter)
             return provider.get_snapshots(universe)
         except Exception as exc:
             print(f"[main] batch fetch failed ({exc}); falling back to one symbol at a time.")
@@ -199,7 +201,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         "day_log": _fresh_day_log(), "watchlisted_today": set(),
         "eod_warned_today": set(), "last_snap_by_symbol": {},
         "scans": 0, "symbols_scanned": 0, "scan_secs": [], "suppressed_logged": set(),
-        "alerts_sent_today": 0, "daily_cap_hit": False, "skipped_budget": {}, "shadow_symbols": set(),
+        "alerts_sent_today": 0, "daily_cap_hit": False, "skipped_budget": {}, "shadow_symbols": set(), "shadow_cheaper": set(), "last_scan_done_at": None, "preloaded": False,
         "alerts_by_symbol": {s.strip().upper(): 1 for s in (already_alerted or []) if s.strip()}, "closed_checked": not skip_if_closed,
         "watchlist_score_history": {},  # {(symbol, bias): last-seen score} -
                                         # used to only alert when a setup is
@@ -215,6 +217,14 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         hhmm = now.strftime("%H:%M")
         return config.MARKET_OPEN_TIME <= hhmm < config.MARKET_CLOSE_TIME
 
+    def _last_scan_text() -> str:
+        started, done = state["last_scan_at"], state.get("last_scan_done_at")
+        if not done:
+            return f"Last scan started {started:%H:%M}."
+        mins = max(int((dt.datetime.now() - done).total_seconds() // 60), 0)
+        return (f"Last scan started {started:%H:%M}, finished {done:%H:%M} "
+                f"({'just now' if mins == 0 else str(mins) + ' min ago'}).")
+
     def _status_text(_arg: str = "") -> str:
         now = dt.datetime.now()
         if not _in_market_hours(now):
@@ -228,7 +238,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         if state["last_scan_at"] is None:
             return "🤖 Bot is up, about to start scanning."
         base = (
-            f"🤖 Bot is running. Last scan: {state['last_scan_at']:%H:%M}.\n"
+            f"🤖 Bot is running. {_last_scan_text()}\n"
             f"{len(state['alerted_today'])} signal(s) sent today"
             f"{' (' + str(state['last_signal_count']) + ' new this scan)' if state['last_signal_count'] else ''}.\n"
         )
@@ -359,24 +369,42 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         account.manual_close(pos, price)
         return f"\U0001F44B Recorded {symbol} closed at ₹{price:.2f}. Freed up for new trades."
 
+    def _is_profit(pos) -> bool:
+        """A call counts as a PROFIT if it reached Target 1, or (closed at the square-off / manually) ended in the green."""
+        if pos.t1_alerted or pos.t1_price > 0 or "T1" in pos.booked_levels:
+            return True
+        return pos.status == "CLOSED" and pos.actual_pnl() > 0
+
+    def _alerted_positions(symbol: str):
+        return [p for p in (account.open_positions if account else []) if p.symbol == symbol and not p.shadow]
+
+    def _profit_strikes(symbol: str) -> set:
+        """Strikes of today's profitable calls on this underlying (a repeat call must avoid all of them)."""
+        return {p.strike for p in _alerted_positions(symbol) if _is_profit(p)}
+
     def _alert_block_reason(symbol: str, score: float = None, watch: bool = False):
         """Why a NEW alert for this underlying must be suppressed, or None.
-        One alert per stock/index per day: once it has alerted (or you added a trade on it with /add),
-        nothing more comes for the rest of the day - regardless of how that trade ended (targets,
-        stoploss, or still open) and regardless of direction/strike - unless this new signal scores at
-        least REALERT_MIN_SCORE (and the daily exception allowance is not used up). Heads-up (watch)
-        messages are never sent for a symbol that already alerted."""
+        First alert of the day: always allowed. After that (the rule agreed 26 Nov 2026):
+          - never while the earlier call is still open (wait until it is closed),
+          - the new score must be ABOVE REALERT_MIN_SCORE (80),
+          - no daily limit (REALERT_MAX_PER_DAY None); applies to indexes and stocks, CE and PE.
+        The strike rule (a different strike after a profit, same strike allowed after a loss) is applied once the
+        contract is known - see _strike_conflict. Heads-up (watch) messages are never sent once it has alerted."""
         if not config.ONE_ALERT_PER_UNDERLYING_PER_DAY:
             return None
-        count = state["alerts_by_symbol"].get(symbol, 0)
-        if account:
-            count = max(count, sum(1 for p in account.open_positions if p.symbol == symbol))
+        mine = _alerted_positions(symbol)
+        count = max(state["alerts_by_symbol"].get(symbol, 0), len(mine))
         if count == 0:
             return None
-        if (not watch and score is not None and score >= config.REALERT_MIN_SCORE
-                and count - 1 < config.REALERT_MAX_PER_DAY):
-            return None
-        return "already alerted today"
+        if watch:
+            return "already alerted today"
+        if any(p.status != "CLOSED" and p.lots_remaining > 0 for p in mine):
+            return "its earlier call is still open"
+        if score is None or not score > config.REALERT_MIN_SCORE:
+            return "already alerted today"
+        if config.REALERT_MAX_PER_DAY is not None and count - 1 >= config.REALERT_MAX_PER_DAY:
+            return "already alerted today"
+        return None
 
     def _over_budget(entry: float, lot_size: int) -> bool:
         return bool(config.MAX_COST_PER_LOT) and entry * lot_size > config.MAX_COST_PER_LOT
@@ -386,6 +414,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         only if the symbol has not alerted) so the journal and weekly review can compare the lower score band."""
         if not account or not config.SHADOW_TRACK_LOWER_BAND or r.score < config.MIN_SIGNAL_SCORE:
             return
+        if config.SILENT_TRACK_UNTIL and dt.datetime.now().strftime("%H:%M") >= config.SILENT_TRACK_UNTIL:
+            return   # too close to the square-off to teach anything
         if r.symbol in state["shadow_symbols"] or state["alerts_by_symbol"].get(r.symbol, 0):
             return
         snap_s = snap_by_symbol.get(r.symbol)
@@ -405,6 +435,31 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             state["shadow_symbols"].add(r.symbol)
             print(f"[monitor] silent tracking: {r.symbol} {idea_s.option_type} (score {r.score:.1f}; "
                   f"{'after the ' + config.NO_ALERTS_AFTER + ' cutoff' if r.score >= config.ALERT_SCORE else 'below ' + format(config.ALERT_SCORE, '.0f')})")
+
+    def _shadow_cheaper(r):
+        """An over-budget signal: paper-trade it SILENTLY at the reasoned (cheaper) strike so the journal shows whether
+        that strike would have worked. No Telegram message. One per underlying per day."""
+        if not account or not config.CHEAPER_STRIKE_SHADOW or r.symbol in state["shadow_cheaper"]:
+            return
+        if config.SILENT_TRACK_UNTIL and dt.datetime.now().strftime("%H:%M") >= config.SILENT_TRACK_UNTIL:
+            return
+        snap_c = snap_by_symbol.get(r.symbol)
+        if snap_c is None:
+            return
+        option_type = "CE" if r.bias == "BULLISH" else "PE"
+        try:
+            pick = pick_reasoned_strike(snap_c, option_type, sides="otm")
+            idea_c = build_trade_idea(snap_c, r, leg=pick["leg"], strike_pick=pick) if pick else None
+        except Exception:
+            return
+        if not idea_c:
+            return
+        idea_c.context["entry_clock"] = dt.datetime.now().strftime("%H:%M")
+        idea_c.context["why_shadow"] = "ATM contract over the per-lot budget"
+        if account.open_trade(idea_c, shadow=True) is not None:
+            state["shadow_cheaper"].add(r.symbol)
+            print(f"[monitor] silent tracking (reasoned strike): {r.symbol} {idea_c.option_type} "
+                  f"{fmt_strike(idea_c.strike)} (score {r.score:.1f}) - " + "; ".join(idea_c.context.get("strike_pick", [])))
 
     def _live_price(pos):
         snap = state["last_snap_by_symbol"].get(pos.symbol)
@@ -457,7 +512,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             f"Entry ₹{pos.entry:.2f} | {pos.lots_total} lot(s) x {lot_size}\n"
             f"SL ₹{pos.stoploss:.2f} | T1 ₹{pos.target1:.2f} T2 ₹{pos.target2:.2f}"
             f"{f' T3 ₹{pos.target3:.2f}' if pos.n_targets >= 3 else ''}\n"
-            f"I'll alert you on T1 / exits. No new {symbol} alerts today (unless a score of {config.REALERT_MIN_SCORE:.0f}+)."
+            f"I'll alert you on T1 / exits. Another {symbol} alert only after this trade is closed and with a score above {config.REALERT_MIN_SCORE:.0f}."
         )
 
     def _handle_help(_arg: str = "") -> str:
@@ -588,7 +643,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             f"you can already send /add or /trades meanwhile."
         )
 
-    def _fetch_while_polling():
+    def _fetch_while_polling(chain_filter=None):
         """Run one market scan in a background thread and keep answering Telegram commands every
         few seconds while it runs. The first scan of a session downloads history for every symbol
         and can take several minutes - commands (/add, /trades, ...) must not sit unanswered."""
@@ -597,7 +652,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
 
         def work():
             try:
-                box["snaps"] = fetch_all_snapshots(provider)
+                box["snaps"] = fetch_all_snapshots(provider, chain_filter=chain_filter)
             except Exception as exc:   # surfaced in the main thread below
                 box["error"] = exc
 
@@ -656,6 +711,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 state["suppressed_logged"] = set()
                 state["alerts_by_symbol"] = {}
                 state["alerts_sent_today"], state["shadow_symbols"] = 0, set()
+                state["shadow_cheaper"] = set()
                 state["daily_cap_hit"], state["skipped_budget"] = False, {}
                 state["day_log"] = _fresh_day_log()
                 if account:
@@ -669,6 +725,15 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
 
             if not _in_market_hours(now):
                 before_open, _ = _within_market_hours(now)
+                if (before_open and config.PRELOAD_BEFORE_OPEN and not state["preloaded"]
+                        and hasattr(provider, "preload") and not state["closed_checked"]):
+                    state["preloaded"] = True       # use the wait: download the daily history now, not during the first scan
+                    try:
+                        print("[monitor] pre-loading daily history while waiting for the open...")
+                        provider.preload()
+                    except Exception as exc:
+                        print(f"[monitor] pre-load failed (not fatal): {exc}")
+                    continue
                 reason = f"opens at {config.MARKET_OPEN_TIME}" if before_open else "closed for the day"
                 print(f"[monitor] {now:%H:%M} - market {reason}. Idling (still answering Telegram status/summary)...")
                 _sleep_with_status_polling(min(config.MONITOR_INTERVAL_SECONDS, 60))
@@ -679,6 +744,14 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
 
             if not state["closed_checked"]:
                 if now.strftime("%H:%M") < "09:20":
+                    if config.PRELOAD_BEFORE_OPEN and not state["preloaded"] and hasattr(provider, "preload"):
+                        state["preloaded"] = True
+                        try:
+                            print("[monitor] pre-loading daily history while waiting for the open...")
+                            provider.preload()
+                        except Exception as exc:
+                            print(f"[monitor] pre-load failed (not fatal): {exc}")
+                        continue
                     _sleep_with_status_polling(min(30, config.MONITOR_INTERVAL_SECONDS + 20))
                     continue
                 traded = None
@@ -705,7 +778,9 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                                             for p in account.open_positions + account.shadow_positions
                                             if p.status != "CLOSED"}
             scan_started = time.time()
-            snapshots = _fetch_while_polling()
+            two_stage = (config.TWO_STAGE_SCAN and state["scans"] % max(config.TWO_STAGE_FULL_EVERY, 1) != 0
+                         and hasattr(provider, "get_snapshots"))
+            snapshots = _fetch_while_polling(chain_filter=needs_option_chain if two_stage else None)
             if snapshots is None:
                 _end_session()
                 break
@@ -732,6 +807,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 send_telegram_message("✅ Data feed recovered, scanning normally.")
             feed_down_cycles, feed_alert_sent = 0, False
             state["scans"] += 1
+            state["last_scan_done_at"] = dt.datetime.now()
             state["symbols_scanned"] = len(snapshots)
             snap_by_symbol = {s.symbol: s for s in snapshots}
             state["last_snap_by_symbol"] = snap_by_symbol
@@ -827,18 +903,43 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                     if tag not in state["suppressed_logged"]:
                         state["suppressed_logged"].add(tag)
                         print(f"[monitor] {now:%H:%M} - no new {r.symbol} alert: {blocked} "
-                              f"(only a score of {config.REALERT_MIN_SCORE:.0f}+ can repeat).")
+                              f"(a repeat needs a closed earlier call and a score above {config.REALERT_MIN_SCORE:.0f}).")
                     continue
-                idea = build_trade_idea(snap_by_symbol[r.symbol], r)
+                snap_r = snap_by_symbol[r.symbol]
+                idea = build_trade_idea(snap_r, r)
                 if not idea:
                     continue
+                used_strikes = set()
+                if state["alerts_by_symbol"].get(r.symbol, 0) or _alerted_positions(r.symbol):
+                    used_strikes = _profit_strikes(r.symbol)   # a repeat call after a PROFIT must use a different strike
+                if idea.strike in used_strikes:
+                    pick = pick_reasoned_strike(snap_r, option_type, exclude_strikes=used_strikes, sides="any")
+                    if pick is None:
+                        tag = (r.symbol, "no different strike", today.isoformat())
+                        if tag not in state["suppressed_logged"]:
+                            state["suppressed_logged"].add(tag)
+                            print(f"[monitor] {now:%H:%M} - no new {r.symbol} alert: its earlier call made a profit at "
+                                  f"{fmt_strike(idea.strike)} and no other strike passes the checks.")
+                        _track_silently(r)
+                        continue
+                    idea = build_trade_idea(snap_r, r, leg=pick["leg"], strike_pick=pick)
+                    if not idea:
+                        continue
                 if _over_budget(idea.entry, idea.lot_size):
                     # too expensive for the account: no alert, but remember it for the daily summary
                     state["skipped_budget"][idea.symbol] = round(idea.entry * idea.lot_size)
-                    continue
+                    pick = None
+                    if config.CHEAPER_STRIKE_ALERTS:
+                        pick = pick_reasoned_strike(snap_r, option_type, exclude_strikes=used_strikes, sides="otm")
+                    if pick is not None:
+                        idea = build_trade_idea(snap_r, r, leg=pick["leg"], strike_pick=pick)
+                    if pick is None or not idea:
+                        _shadow_cheaper(r)         # not alerted: test the reasoned strike silently
+                        continue
                 key = (idea.symbol, idea.option_type, idea.strike, idea.expiry, today.isoformat())
-                if key in state["alerted_today"]:
-                    continue
+                is_repeat = bool(state["alerts_by_symbol"].get(idea.symbol, 0) or _alerted_positions(idea.symbol))
+                if key in state["alerted_today"] and not is_repeat:
+                    continue   # (a repeat call on the same contract after a LOSS is allowed - see _alert_block_reason)
                 idea.context["entry_clock"] = now.strftime("%H:%M")
                 nifty = snap_by_symbol.get("NIFTY")
                 if nifty is not None and getattr(nifty, "prev_close", 0):
