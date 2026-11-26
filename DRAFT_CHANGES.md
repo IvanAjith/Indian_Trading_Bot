@@ -71,6 +71,23 @@ in the day; a time-of-day-adjusted ratio (volume so far vs the usual volume by t
 ## Ideas log (add below)
 - (none yet)
 
+## POST-SESSION ANALYSIS CHECKLIST (26 Nov 2026, after 15:12 IST) - do this before any change
+Sources: run #9 log (run id 45754452588 / monitor.log artifact), journal-data branch (journal/2026-11-26.md, trades.jsonl), the end-of-day
+Telegram summary, and the alert/trade messages Ajith pastes into the chat.
+1. **Volume bug (D3):** confirm from the log - when did the history refresh (~13:55-14:00)? Compare scores/volume ratios before vs after;
+   list the signals that appeared only after the refresh. Quantify how many morning signals were probably missed. Then decide the fix (live volume per scan).
+2. **Why calls were reduced vs 25 Nov:** count signals scoring 70+, skipped over the Rs 35,000/lot budget (names, costs), blocked as already alerted,
+   after 14:45, over the 2-per-scan cap, silent 65-69.9 trades and their results, heads-ups sent.
+3. **Every alert and watch message today** (Ajith will paste them): for each - time sent, scan that produced it, score, outcome (T1/T2/T3, stop,
+   time exit), and delay between touch and message (old code, 3+ min scans).
+4. **Silent tracking:** how many silent calls hit T1/T2/stop; do they match alerted ones?
+5. **Plans:** Plan A (full plan) vs Plan B (1 lot at T1) for the day; peak capital in use.
+6. **Scan health:** first-scan time, scan times and gaps, rate-limit retries, any stall.
+7. **Late entries:** results of the 13:59-14:45 alerts versus earlier ones (small sample - one day only).
+8. **Open items to decide with Ajith:** D1 (second-alert rule), D2 (strike choice, silent shadow test first), D3 (volume fix and time-of-day
+   volume ratio), heads-up rule stays unchanged, cron-job.org outside timer.
+Nothing is changed in the bot until Ajith approves after this analysis.
+
 ## Today's checks pending
-- 15:35 IST: analyse run #9 log + journal (signals >=70, blocked by budget / once-per-day / cutoff, silent 65-69.9 results, heads-ups, scan times) and report.
+- 15:35 IST: run the checklist above and report.
 - Evening: set up the cron-job.org outside timer (reminder set for 16:00 IST).
