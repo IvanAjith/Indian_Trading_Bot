@@ -260,6 +260,11 @@ VOLUME_PROFILE_MIN_SHARE = 0.10    # never divide by less than this share (avoid
 CHEAPER_STRIKE_SHADOW = True
 CHEAPER_STRIKE_ALERTS = True    # ON from 26 Nov 2026 (Ajith: do not miss a 70+ signal just because ATM costs over the budget)
 STRIKE_MIN_DELTA = 0.25
+# Never drift far from the at-the-money trade just to get under the budget (Ajith, 26 Nov 2026): at most STRIKE_MAX_STEPS strikes
+# away from ATM, and the contract must still behave like the ATM one (its delta at least STRIKE_MIN_DELTA_VS_ATM of ATM's delta).
+# If nothing passes, the signal is skipped - that is intended.
+STRIKE_MAX_STEPS = 2
+STRIKE_MIN_DELTA_VS_ATM = 0.6
 STRIKE_MAX_MOVE_ATR_FRAC = 0.35
 STRIKE_MIN_VOLUME = 200
 STRIKE_MIN_OI = 1000
