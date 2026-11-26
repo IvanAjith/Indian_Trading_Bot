@@ -73,7 +73,8 @@ Full write-up: `journal/notes/2026-11-26-silent-winners.md` on the journal-data 
 - The OI part of the score gives full points to OI build-up in the WRONG direction (call + short build-up: 1 win in 7). Candidate fix D4a.
 - RSI stretched (calls 70+/puts 30-): 3 wins in 12, -28,190. Candidate D4b.
 - Continuation profile (2%+ move, OI agreeing, RSI not stretched): TCS, HCLTECH, INFY, WIPRO = +16,254, both T1 trades. Candidate D4c.
-- Journal now tracks oi_against, stretched, continuation; the weekly review compares them and lists silent T1 trades. Scoring itself NOT changed.
+- Journal now tracks oi_against, stretched, continuation; the weekly review compares them and lists silent T1 trades.
+- BUILT 26 Nov evening on Ajith's request: D4a (OI direction-aware), D4b (stretched RSI -5, stocks only), D4c (continuation +6). In-sample replay of 26 Nov: 7 alerts, 5 wins, +Rs 16,769 vs 6 alerts, 3 wins, -Rs 1,806 actual (fitted to that day - NOT evidence).
 
 ## Ideas log (add below)
 - (none yet)

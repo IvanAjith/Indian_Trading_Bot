@@ -33,8 +33,8 @@ OPENING_UNTIL = "09:50"   # first half hour after the open
 LATE_FROM = "14:00"
 QUICK_STOP_MIN = 10       # a stop hit this fast after entry looks like noise / a spike entry
 NEAR_MISS_PCT = 10.0      # stopped out after getting this close to T1 (+15%)
-RSI_STRETCHED_HIGH = 70   # a call bought with RSI at/above this (or a put at/below RSI_STRETCHED_LOW) = trend already stretched
-RSI_STRETCHED_LOW = 30
+RSI_STRETCHED_HIGH = getattr(config, 'STRETCHED_RSI_HIGH', 70)   # a call bought with RSI at/above this (or a put at/below RSI_STRETCHED_LOW) = trend already stretched
+RSI_STRETCHED_LOW = getattr(config, 'STRETCHED_RSI_LOW', 30)
 
 # risk-factor code -> (short reason, what to do about it)
 RISK_FACTORS = {
