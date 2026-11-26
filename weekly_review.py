@@ -41,9 +41,15 @@ def load(journal_dir: str) -> list:
             line = line.strip()
             if line:
                 try:
-                    rows.append(json.loads(line))
+                    row = json.loads(line)
                 except ValueError:
+                    continue
+                try:   # re-read every row with the CURRENT diagnosis rules, so factors added later also cover older trades
+                    d = jr.diagnose(row)
+                    row.update({k: d[k] for k in ("outcome", "outcome_label", "win", "risk_codes", "good_codes", "lesson")})
+                except Exception:
                     pass
+                rows.append(row)
     return rows
 
 
@@ -128,6 +134,12 @@ def analyse(rows: list) -> dict:
         without = [r for r in rows if code not in (r.get("risk_codes") or [])]
         factors[code] = {"with": stats(with_), "without": stats(without)}
 
+    good_factors = {}
+    for code in jr.GOOD_FACTORS:
+        with_ = [r for r in rows if code in (r.get("good_codes") or [])]
+        without = [r for r in rows if code not in (r.get("good_codes") or [])]
+        good_factors[code] = {"with": stats(with_), "without": stats(without)}
+
     reasons = collections.Counter()
     for r in rows:
         if r.get("a_pnl", 0) < 0:
@@ -143,6 +155,14 @@ def analyse(rows: list) -> dict:
                 "evidence": f"{w['n']} trades with '{jr.RISK_FACTORS[code][0]}' won {w['win_rate']:.0f}% vs "
                             f"{wo['win_rate']:.0f}% without ({wo['n']} trades)",
                 "action": jr.RISK_FACTORS[code][1]})
+    for code, fs in good_factors.items():
+        w, wo = fs["with"], fs["without"]
+        if w["n"] >= MIN_FACTOR and wo["n"] >= MIN_FACTOR and (w["win_rate"] - wo["win_rate"]) >= GAP:
+            suggestions.append({
+                "type": "favour", "factor": code,
+                "evidence": f"{w['n']} trades with '{jr.GOOD_FACTORS[code]}' won {w['win_rate']:.0f}% vs "
+                            f"{wo['win_rate']:.0f}% without ({wo['n']} trades)",
+                "action": "Consider favouring (or requiring) this: e.g. a score bonus or a filter - needs your approval."})
     for dim, by in groups.items():
         for k, s in by.items():
             if s["n"] >= MIN_BUCKET and overall["n"] >= 2 * MIN_BUCKET:
@@ -156,7 +176,27 @@ def analyse(rows: list) -> dict:
                                         "evidence": f"{s['n']} trades, win rate {s['win_rate']:.0f}% (overall {overall['win_rate']:.0f}%), "
                                                     f"average {money(s['avg_a'])} per trade",
                                         "action": f"This group does well ({dim}: {k}) - consider favouring it (e.g. a higher score floor if it is a score band)."})
-    return {"overall": overall, "groups": groups, "factors": factors, "reasons": reasons, "suggestions": suggestions}
+    return {"overall": overall, "groups": groups, "factors": factors, "good_factors": good_factors,
+            "reasons": reasons, "suggestions": suggestions}
+
+
+def missed_winners(rows: list) -> dict:
+    """Silent trades (never alerted) that reached Target 1: what did they have that the other silent trades did not?
+    This is how the review learns which signals we would have wanted to alert on. Small samples = hypotheses only."""
+    silent = [r for r in rows if not r.get("alerted", True) and not r.get("manual")]
+    won = [r for r in silent if r.get("t1_reached")]
+    rest = [r for r in silent if not r.get("t1_reached")]
+    codes = {}
+    for code in list(jr.GOOD_FACTORS) + list(jr.RISK_FACTORS):
+        a = sum(1 for r in won if code in (r.get("good_codes") or []) + (r.get("risk_codes") or []))
+        b = sum(1 for r in rest if code in (r.get("good_codes") or []) + (r.get("risk_codes") or []))
+        if a or b:
+            codes[code] = (a, len(won), b, len(rest))
+    return {"won": won, "rest": rest, "codes": codes}
+
+
+def _name(code: str) -> str:
+    return jr.GOOD_FACTORS.get(code) or jr.RISK_FACTORS[code][0]
 
 
 # ---- output ----------------------------------------------------------------------------------
@@ -201,6 +241,26 @@ def render(week_rows, all_rows, period: str) -> str:
     for code, fs in a_all["factors"].items():
         w, wo = fs["with"], fs["without"]
         L.append(f"| {jr.RISK_FACTORS[code][0]} | {w['n']} / {w['win_rate']:.0f}% | {wo['n']} / {wo['win_rate']:.0f}% |")
+    L += ["", "## Do the good factors really go with wins?", "",
+          "| Factor | With it: trades / win rate | Without it: trades / win rate |", "|---|---|---|"]
+    for code, fs in a_all["good_factors"].items():
+        w, wo = fs["with"], fs["without"]
+        L.append(f"| {jr.GOOD_FACTORS[code]} | {w['n']} / {w['win_rate']:.0f}% | {wo['n']} / {wo['win_rate']:.0f}% |")
+    mw = missed_winners(all_rows)
+    L += ["", "## Silent trades that reached Target 1 - the ones we did not alert (what to learn)", ""]
+    if mw["won"]:
+        for r in sorted(mw["won"], key=lambda r: (r.get("date", ""), r.get("entry_clock", ""))):
+            L.append(f"- {r.get('date')} {r.get('entry_clock')} {r['symbol']} {r['option_type']} {r['strike']:g}, score {r.get('score')}: "
+                     f"peak {r.get('peak_gain_pct')}%, result {money(r.get('a_pnl', 0))}; "
+                     f"with: {', '.join(_name(c) for c in (r.get('good_codes') or [])) or '-'}; "
+                     f"against: {', '.join(_name(c) for c in (r.get('risk_codes') or [])) or '-'}.")
+        L += ["", f"What they share versus the other {len(mw['rest'])} silent trades "
+                  f"(count among the {len(mw['won'])} winners vs among the others):", ""]
+        for code, (a, na, b, nb) in sorted(mw["codes"].items(), key=lambda kv: -(kv[1][0] / max(kv[1][1], 1) - kv[1][2] / max(kv[1][3], 1))):
+            L.append(f"- {_name(code)}: {a}/{na} winners vs {b}/{nb} others")
+        L.append("\n> Few trades: these are hypotheses to test with more data, not rules.")
+    else:
+        L.append("- none yet")
     L += ["", "## Most common warning signs in losing trades (this period)", ""]
     if a_week["reasons"]:
         L += [f"- {jr.RISK_FACTORS[c][0]}: {n} losing trade(s)" for c, n in a_week["reasons"].most_common()]
@@ -230,6 +290,11 @@ def digest(week_rows, all_rows, period: str) -> str:
     if a_week["reasons"]:
         top = ", ".join(f"{jr.RISK_FACTORS[c][0]} ({n})" for c, n in a_week["reasons"].most_common(3))
         lines.append(f"Most common warning signs in losers: {top}.")
+    mw = missed_winners(all_rows)
+    if mw["won"]:
+        names = ", ".join(f"{r['symbol']}" for r in mw["won"][:6])
+        lines.append(f"Silent trades that reached Target 1 (not alerted): {len(mw['won'])} of {len(mw['won']) + len(mw['rest'])} - {names}. "
+                     f"See the report for what they had in common.")
     if oa["n"] < 30:
         lines.append(f"<i>Only {oa['n']} trades so far - hints, not conclusions.</i>")
     if a_all["suggestions"]:

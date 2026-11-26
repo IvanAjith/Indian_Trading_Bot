@@ -33,6 +33,8 @@ OPENING_UNTIL = "09:50"   # first half hour after the open
 LATE_FROM = "14:00"
 QUICK_STOP_MIN = 10       # a stop hit this fast after entry looks like noise / a spike entry
 NEAR_MISS_PCT = 10.0      # stopped out after getting this close to T1 (+15%)
+RSI_STRETCHED_HIGH = 70   # a call bought with RSI at/above this (or a put at/below RSI_STRETCHED_LOW) = trend already stretched
+RSI_STRETCHED_LOW = 30
 
 # risk-factor code -> (short reason, what to do about it)
 RISK_FACTORS = {
@@ -44,12 +46,17 @@ RISK_FACTORS = {
     "late_entry": ("entered late in the day with little time left", "Stop new entries after about 14:00."),
     "near_threshold": ("the score only just passed the threshold", "Consider a higher minimum score."),
     "quick_stop": ("the stop was hit within minutes of entry", "Entry may have been at a spike; look at waiting for confirmation."),
+    "oi_against": ("open interest built up AGAINST the trade's direction",
+                   "Do not count OI build-up that points the other way (a call with PUT build-up, a put with CALL build-up); require OI to agree with the direction."),
+    "stretched": ("the trend was already stretched (RSI 70+ for a call, 30- for a put)",
+                  "Skip or down-weight calls when RSI is 70+ and puts when RSI is 30 or below - the move may be exhausted."),
 }
 GOOD_FACTORS = {
     "strong_volume": "strong volume",
     "oi_confirmed": "open interest confirmed the direction",
     "with_market": "it agreed with the NIFTY trend",
     "high_score": "high score",
+    "continuation": "continuation profile (strong same-direction move today + agreeing OI + trend not stretched)",
 }
 
 
@@ -143,10 +150,19 @@ def diagnose(f: dict, pos=None) -> dict:
         elif vol >= STRONG_VOLUME:
             goods.append(("strong_volume", f"volume {vol:.1f}x the 20-day average"))
     oi = f.get("oi_signal")
-    if oi in ("long_buildup", "short_buildup"):
-        goods.append(("oi_confirmed", f"options OI shows {oi.replace('_', ' ')}"))
+    want_up = f["option_type"] == "CE"
+    oi_aligned = (want_up and oi == "long_buildup") or (not want_up and oi == "short_buildup")
+    oi_against = (want_up and oi == "short_buildup") or (not want_up and oi == "long_buildup")
+    if oi_aligned:
+        goods.append(("oi_confirmed", f"options OI shows {oi.replace('_', ' ')}, agreeing with the {'call' if want_up else 'put'}"))
+    elif oi_against and not f["manual"]:
+        risks.append(("oi_against", f"options OI shows {oi.replace('_', ' ')}, which points AGAINST a {'call' if want_up else 'put'}"))
     elif oi is not None and not f["manual"]:
         risks.append(("no_oi", f"open interest was {str(oi).replace('_', ' ')}, not confirming"))
+    rsi = f.get("rsi")
+    stretched = rsi is not None and ((want_up and rsi >= RSI_STRETCHED_HIGH) or (not want_up and rsi <= RSI_STRETCHED_LOW))
+    if stretched and not f["manual"]:
+        risks.append(("stretched", f"RSI {rsi:.0f}: the trend was already stretched for a {'call' if want_up else 'put'}"))
     nifty = f.get("nifty_chg_pct")
     if nifty is not None and not f["is_index"]:
         want_up = f["option_type"] == "CE"
@@ -159,6 +175,9 @@ def diagnose(f: dict, pos=None) -> dict:
         moved = chg if f["option_type"] == "CE" else -chg
         if moved >= CHASE_PCT:
             risks.append(("chased", f"the underlying had already moved {chg:+.1f}% today"))
+            if oi_aligned and not stretched:
+                goods.append(("continuation", f"strong {chg:+.1f}% move today with agreeing OI and RSI {rsi:.0f} not stretched "
+                                              f"(a continuation profile - the review tests this against 'chased')"))
     clock = f.get("entry_clock") or ""
     if clock and clock < OPENING_UNTIL:
         risks.append(("opening", f"entered at {clock}, in the volatile first half hour"))
