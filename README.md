@@ -91,19 +91,23 @@ Each symbol gets a 0-100 **score**:
 - The paper account is ₹10 lakh; trades whose planned size risks more than the 5% max-loss rule on that capital are
   flagged ⚠️oversize (information only).
 - **One open call per stock/index at a time; repeats only under strict rules.** The first alert of the day on a
-  stock/index is always allowed. A **second (or later) alert** on the same name is sent only if **all** hold:
-  the earlier call is **closed** (never while it is open); the new score is **above 80** (`REALERT_MIN_SCORE`); and
-  the contract passes the strike rule - after a **profit** (the earlier call reached Target 1, or closed in the green
-  at the square-off) the new call must be at a **different strike** from every profitable call that day; after a
-  **loss** the same strike is allowed. Indexes and stocks, CE and PE, no daily limit. A name that has alerted gets
-  no heads-up. Trades you register with `/add` count as that symbol's alert.
+  stock/index is always allowed. After that, a repeat alert on the same name needs the earlier call to be **closed** (never while
+  it is open) and:
+  - **Stocks:** **no repeat** - one alert per stock per day, whether it ended in profit or loss (`REALERT_MAX_PER_DAY = 0`).
+  - **Indexes (NIFTY, BANKNIFTY, FINNIFTY):** the normal alert score (70+) is enough, but **30 minutes** must have passed since the earlier
+    call closed (`REALERT_GAP_MINUTES_INDEX`), and at most **3 alerts per index per day** in total (`REALERT_MAX_PER_DAY_INDEX`).
+  - **Strike rule (indexes):** after a **profit** (the earlier call reached Target 1, or closed in the green at the square-off) the new call
+    must be at a **different strike** from every profitable call that day; after a **loss** the same strike is allowed. CE and PE alike.
+  A name that has alerted gets no heads-up. Trades you register with `/add` count as that symbol's alert.
 - **Reasoned strike choice.** If the at-the-money contract costs more than ₹35,000 per lot, or a repeat call must
   avoid an earlier strike, the bot looks along the option chain (ATM ±3 strikes) and picks a strike by reasons:
   cost within budget, delta (estimated from neighbouring strikes) at least 0.25, the move needed for Target 1 a
   realistic share of the usual daily range, enough volume and open interest, and no big opposing open-interest wall
-  in the way; of what passes, the strike closest to the money. Over-budget signals are paper-traded **silently** at
-  that strike (`CHEAPER_STRIKE_SHADOW`) so the journal shows whether it works; real alerts for it stay off
-  (`CHEAPER_STRIKE_ALERTS = False`) until the journal supports it. An alert at such a strike says why it was chosen.
+  in the way; of what passes, the strike closest to the money. **At-the-money is always tried first.** If it costs more than the
+  budget and a strike passes the checks, you get a **real alert at that cheaper strike** (`CHEAPER_STRIKE_ALERTS`, on since 26 Nov 2026), with a note
+  that at-the-money was over your limit, that this strike is not tested over time yet, and why it was chosen; if nothing passes, the
+  signal is skipped (counted in the daily summary) and the reasoned strike is paper-traded silently (`CHEAPER_STRIKE_SHADOW`). These
+  trades are tagged in the journal and the weekly review compares them with at-the-money trades ("Strike type").
 - **Learning loop (nightly lab, weekly decisions).** The live scoring rules stay fixed for the week (stamped on every journal row as
   `RULES_VERSION`). After every session `rule_lab.py` replays **candidate rules** (RSI cap, a doubled stretched penalty, a bigger
   continuation bonus, "OI must agree", "move 1%+ with the trade", an entry-time window) on the journal and writes
@@ -321,7 +325,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `STOPLOSS_PCT`, `TARGET_PCT_T1/T2/T3` | 18, 15/30/50 | Stop and targets on the option price |
 | `LOTS_PER_TRADE_INDEX`, `TARGETS_INDEX`, `LOTS_PER_TRADE_STOCK`, `TARGETS_STOCK` | 3, 3, 2, 2 | Lots bought and number of targets for index trades and for stock trades (1 lot sold at each target) |
 | `MOVE_SL_TO_COST_AFTER_T1`, `TRAIL_SL_TO_T1_AFTER_T2` | True, True | Stop to cost after T1; for index trades, stop to the T1 price after T2 |
-| `ONE_ALERT_PER_UNDERLYING_PER_DAY`, `REALERT_MIN_SCORE`, `REALERT_MAX_PER_DAY` | True, 80, None | Repeat alerts on the same stock/index: earlier call closed, score above 80, different strike after a profit (same strike allowed after a loss), no daily limit |
+| `ONE_ALERT_PER_UNDERLYING_PER_DAY`, `REALERT_MIN_SCORE`, `REALERT_MAX_PER_DAY`, `REALERT_MIN_SCORE_INDEX`, `REALERT_GAP_MINUTES_INDEX`, `REALERT_MAX_PER_DAY_INDEX` | True, 80, 0, None, 30, 3 | Repeat alerts on the same stock/index: earlier call closed, score above 80, different strike after a profit (same strike allowed after a loss), no daily limit |
 | `VOLUME_TIME_ADJUST`, `VOLUME_DAY_PROFILE` | False | Compare volume with the usual volume by this time of day (off: plain 20-day average) |
 | `CHEAPER_STRIKE_SHADOW`, `CHEAPER_STRIKE_ALERTS`, `STRIKE_MIN_DELTA`, `STRIKE_MAX_MOVE_ATR_FRAC`, `STRIKE_MIN_VOLUME`, `STRIKE_MIN_OI`, `STRIKE_OI_WALL_RATIO` | True, False, 0.25, 0.35, 200, 1000, 1.5 | Reasoned strike choice: silent test on, real alerts off |
 | `TWO_STAGE_SCAN`, `TWO_STAGE_FULL_EVERY`, `PRELOAD_BEFORE_OPEN`, `SILENT_TRACK_UNTIL` | True, 20, True, 14:55 | Faster scans (option chains only where they can matter), history pre-loaded before the open, no silent trades in the last 15 minutes |

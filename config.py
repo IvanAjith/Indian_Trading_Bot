@@ -146,9 +146,16 @@ ONE_ALERT_PER_UNDERLYING_PER_DAY = True   # once a stock/index has produced an e
 #   - the new signal's score is ABOVE REALERT_MIN_SCORE,
 #   - if a previous call was a PROFIT (reached Target 1, or closed in the green at the square-off), the new call
 #     must be at a DIFFERENT strike from every profitable call that day; after a LOSS the same strike is fine.
-# Applies to indexes and stocks, CE and PE. No daily limit (REALERT_MAX_PER_DAY = None).
-REALERT_MIN_SCORE = 80.0
-REALERT_MAX_PER_DAY = None         # None = no limit on extra alerts per underlying per day
+# STOCKS get no repeat at all (one alert per stock per day); INDEXES may repeat under the rules below. CE and PE alike.
+REALERT_MIN_SCORE = 80.0           # STOCKS: a repeat alert needs a score ABOVE this
+REALERT_MAX_PER_DAY = 0            # STOCKS: extra alerts per stock per day. 0 = ONE alert per stock per day, whether it ended in profit or loss
+                                   # (Ajith, 26 Nov 2026). None = no limit; N = N extra alerts (each also needs a score above REALERT_MIN_SCORE).
+# INDEXES (NIFTY, BANKNIFTY, FINNIFTY) follow their own repeat rule (26 Nov 2026): the normal alert score is enough, but the
+# earlier call must be closed AND REALERT_GAP_MINUTES_INDEX minutes must have passed since it closed, and at most
+# REALERT_MAX_PER_DAY_INDEX alerts per index per day in total. The strike rule below still applies.
+REALERT_MIN_SCORE_INDEX = None     # None = the normal ALERT_SCORE is enough
+REALERT_GAP_MINUTES_INDEX = 30
+REALERT_MAX_PER_DAY_INDEX = 3
 PAPER_TRACK_ALL_SIGNALS = True     # paper-trade EVERY alert the bot sends, so paper_trades.csv
                                    # and /trades match your alerts one-to-one. No cap on open
                                    # positions, and if one lot is bigger than the 5%-risk rule
@@ -251,7 +258,7 @@ VOLUME_PROFILE_MIN_SHARE = 0.10    # never divide by less than this share (avoid
 # CHEAPER_STRIKE_SHADOW: every over-budget signal is paper-traded SILENTLY at the reasoned strike, so the journal shows whether it works.
 # CHEAPER_STRIKE_ALERTS: send real alerts for the reasoned strike (OFF until the journal supports it).
 CHEAPER_STRIKE_SHADOW = True
-CHEAPER_STRIKE_ALERTS = False
+CHEAPER_STRIKE_ALERTS = True    # ON from 26 Nov 2026 (Ajith: do not miss a 70+ signal just because ATM costs over the budget)
 STRIKE_MIN_DELTA = 0.25
 STRIKE_MAX_MOVE_ATR_FRAC = 0.35
 STRIKE_MIN_VOLUME = 200

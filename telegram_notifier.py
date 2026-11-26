@@ -60,7 +60,10 @@ def format_signal_message(idea) -> str:
     expiry_short = _format_expiry_short(idea.expiry)
     reasons = "; ".join(idea.reasons) if idea.reasons else "momentum setup"
     pick = (getattr(idea, "context", {}) or {}).get("strike_pick")
-    strike_line = ("\U0001F9ED Strike chosen because: " + "; ".join(pick) + "\n\n") if pick else ""
+    atm = (getattr(idea, "context", {}) or {}).get("atm_cost_per_lot")
+    cheaper = (f"\u2139\ufe0f At-the-money costs ₹{atm:,.0f} per lot (over your limit), so this is a cheaper strike - "
+               f"not tested over time yet.\n") if (pick and atm) else ""
+    strike_line = (cheaper + "\U0001F9ED Strike chosen because: " + "; ".join(pick) + "\n\n") if pick else ""
     t3_line = (f"\U0001F3AF Target 3: ₹{idea.target3:.2f}\n"
                if getattr(idea, "n_targets", 3) >= 3 else "")
     return (
