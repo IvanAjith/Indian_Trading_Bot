@@ -12,13 +12,20 @@ Requested:
 - **If the previous call closed at a LOSS:** the new call is allowed at the **same strike** too (a fresh setup after a stop-out).
 - Applies to the same underlying ("same indexes"); stocks included unless Ajith says indexes only.
 
-Open questions to settle before building:
-1. What counts as "profit" - the trade closed with a net gain (rupees, after slippage), or T1 was hit? (Suggested: net gain on the closed position.)
-2. If the previous call is still OPEN when the new setup forms: block until it closes (suggested), or allow at a different strike?
-3. Max number of extra alerts per underlying per day (currently 1)? Suggested: keep 1-2.
-4. Indexes only (NIFTY, BANKNIFTY, FINNIFTY) or stocks too?
-5. "Different strike" - any other strike, or at least one step (e.g. 50 points for NIFTY) away from the previous one?
-6. Same direction only (CE after CE) or also the opposite (PE after CE)? Today direction is not part of the rule.
+Answers from Ajith (26 Nov 2026) - now the agreed draft rules:
+1. **Profit = the previous call reached at least Target 1.** (Stop moved to cost after T1 does not turn it into a loss.)
+   **Loss = it closed without reaching T1** (stoploss, or time exit before T1).
+2. **No new call on that underlying while its previous trade is still open.** A new call is allowed only after it is closed.
+3. **No limit** on how many extra alerts per underlying per day - as long as the score is above 80 (and the other rules pass,
+   e.g. 14:45 cutoff and the Rs 35,000 budget).
+4. Applies to **all indexes and stocks**.
+5. After a profit the new call must be **at least one strike step away** from the previous call's strike (any other strike, one step minimum).
+   After a loss the **same strike is allowed**.
+6. Applies to **both CE and PE** (direction does not matter; the rule is per underlying).
+
+Still to confirm (small): a trade closed at the 15:10 time exit without T1 - treat as loss (suggested). And whether the
+"one step away" rule compares with the LAST profitable call or with ALL earlier calls that day (suggested: all earlier calls
+that day that made profit).
 
 Where it lives: `main.py` `_alert_block_reason` and the re-alert state (`alerts_by_symbol`); needs the closed-trade result per underlying
 from `paper_trader` (positions closed today) and the strike of the last call. Keep silent tracking of blocked signals.
@@ -41,6 +48,9 @@ Candidate selection criteria (to be validated on the journal data before use):
 - Shadow-test first: for each over-budget signal, silently paper-track the candidate cheaper strikes (+1, +2) and compare with ATM (this is backlog item 4.2 in FUTURE_PLAN.md). Switch on only if the journal shows they earn.
 
 The chain fetched now is ATM +-3 strikes, so offsets up to 3 need no new data calls.
+
+Note on D2 (Ajith, 26 Nov): the strike must be accurate and justified - analysed from the option chain, never "any strike that fits the
+budget". One step away is the maximum distance to consider first; the alert must explain why the strike was picked.
 
 ## Ideas log (add below)
 - (none yet)
