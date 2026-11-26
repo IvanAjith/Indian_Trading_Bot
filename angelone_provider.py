@@ -661,7 +661,9 @@ class AngelOneDataProvider:
                     self._get_historical_daily("NSE", inst["token"]), spot)
                 chain = self._quotes_from_rows(sym, nearest, near, option_rows) if near else []
                 held_q = self._quotes_from_rows(sym, nearest, held, option_rows) if held else []
-                snap = self._make_snapshot(sym, spot, history, chain)
+                row_s = spot_rows.get(str(inst["token"])) or {}
+                live_vol = int(float(row_s.get("tradeVolume") or 0))
+                snap = self._make_snapshot(sym, spot, history, chain, live_volume=live_vol)
                 snap.held_quotes = held_q
                 snapshots.append(snap)
             except Exception as exc:
@@ -670,13 +672,26 @@ class AngelOneDataProvider:
         return snapshots
 
     @staticmethod
-    def _make_snapshot(symbol, spot, history, option_chain) -> UnderlyingSnapshot:
+    def _avg_prior_volume(history) -> float:
+        """Average daily volume of the 20 days BEFORE today (today's partial candle must not drag the average down)."""
+        if history is None or history.empty:
+            return 0.0
+        vols = history
+        if "CH_TIMESTAMP" in vols and str(vols["CH_TIMESTAMP"].iloc[-1]) == dt.date.today().isoformat() and len(vols) > 1:
+            vols = vols.iloc[:-1]
+        return float(vols["CH_TOT_TRADED_QTY"].tail(20).mean())
+
+    @staticmethod
+    def _make_snapshot(symbol, spot, history, option_chain, live_volume=0) -> UnderlyingSnapshot:
+        # Today's volume: the LIVE traded volume from the quote when available. The daily candle is cached for hours,
+        # so its volume would be stale (that made morning scores too low and caused an afternoon burst on 26 Nov 2026).
+        cached_volume = int(history["CH_TOT_TRADED_QTY"].iloc[-1]) if not history.empty else 0
         return UnderlyingSnapshot(
             symbol=symbol,
             spot=spot,
             prev_close=float(history["CH_PREVIOUS_CLS_PRICE"].iloc[-1]) if not history.empty else spot,
-            day_volume=int(history["CH_TOT_TRADED_QTY"].iloc[-1]) if not history.empty else 0,
-            avg_20d_volume=float(history["CH_TOT_TRADED_QTY"].tail(20).mean()) if not history.empty else 0.0,
+            day_volume=int(live_volume) if live_volume and live_volume > 0 else cached_volume,
+            avg_20d_volume=AngelOneDataProvider._avg_prior_volume(history),
             history=history,
             option_chain=option_chain,
         )

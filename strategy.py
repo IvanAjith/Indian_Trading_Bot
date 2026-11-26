@@ -93,12 +93,112 @@ def _pick_strike(snapshot: UnderlyingSnapshot, option_type: str) -> OptionQuote 
     return next(q for q in candidates if q.strike == target_strike)
 
 
-def build_trade_idea(snapshot: UnderlyingSnapshot, screen_result: ScreenResult) -> TradeIdea | None:
+def _avg_daily_range(snapshot: UnderlyingSnapshot, days: int = 14) -> float:
+    """Average daily high-low range (price points) of the underlying over the last `days` completed days (ATR-like)."""
+    h = snapshot.history
+    try:
+        if h is None or h.empty:
+            return 0.0
+        import datetime as _dt
+        if "CH_TIMESTAMP" in h and str(h["CH_TIMESTAMP"].iloc[-1]) == _dt.date.today().isoformat() and len(h) > 1:
+            h = h.iloc[:-1]
+        rng = (h["CH_TRADE_HIGH_PRICE"] - h["CH_TRADE_LOW_PRICE"]).tail(days)
+        return float(rng.mean())
+    except Exception:
+        return 0.0
+
+
+def _estimate_delta(side: list, i: int, option_type: str) -> float:
+    """Delta of side[i] (quotes of ONE option type sorted by strike), estimated from neighbouring strikes:
+    how much the premium changes per point of strike. 0 if it cannot be estimated."""
+    lo, hi = max(i - 1, 0), min(i + 1, len(side) - 1)
+    if hi == lo:
+        return 0.0
+    dk = side[hi].strike - side[lo].strike
+    if dk <= 0:
+        return 0.0
+    dp = side[lo].ltp - side[hi].ltp if option_type == "CE" else side[hi].ltp - side[lo].ltp
+    return max(0.0, min(1.0, dp / dk))
+
+
+def pick_reasoned_strike(snapshot: UnderlyingSnapshot, option_type: str, exclude_strikes=(), sides: str = "otm",
+                         max_cost: float = None):
+    """Choose a strike by REASONS (see config 'Reasoned strike choice'), not just "whatever fits the budget".
+    sides: "otm" = at/out of the money only (cheaper strikes); "any" = also in-the-money (used when a repeat call must
+    avoid an earlier strike). Returns {"leg": OptionQuote, "reasons": [str, ...], "delta": float, "steps": int} or None.
+    Rule of thumb applied last: of everything that passes the checks, take the one CLOSEST to the money."""
+    max_cost = config.MAX_COST_PER_LOT if max_cost is None else max_cost
+    atm = _pick_strike(snapshot, option_type)
+    if atm is None:
+        return None
+    side = sorted((q for q in snapshot.option_chain if q.option_type == option_type and q.expiry == atm.expiry),
+                  key=lambda q: q.strike)
+    if len(side) < 2:
+        return None
+    strikes = [q.strike for q in side]
+    atm_i = strikes.index(atm.strike)
+    atr = _avg_daily_range(snapshot)
+    other_type = "PE" if option_type == "CE" else "CE"
+    exclude = {float(x) for x in exclude_strikes}
+
+    # opposing open-interest wall: for a CE the biggest CE-OI strike above the spot (resistance); for a PE the biggest
+    # PE-OI strike below the spot (support)
+    wall_strike, wall_oi = None, 0
+    pool = [q for q in side if (q.strike > snapshot.spot if option_type == "CE" else q.strike < snapshot.spot)]
+    if pool:
+        w = max(pool, key=lambda q: q.oi or 0)
+        wall_strike, wall_oi = w.strike, (w.oi or 0)
+
+    best = None
+    for i, q in enumerate(side):
+        if q.strike in exclude or q.ltp <= 0:
+            continue
+        steps = (i - atm_i) if option_type == "CE" else (atm_i - i)   # >0 = out of the money
+        if sides == "otm" and steps < 0:
+            continue
+        lot = max(int(q.lot_size or 1), 1)
+        cost = q.ltp * lot
+        if max_cost and cost > max_cost:
+            continue
+        delta = _estimate_delta(side, i, option_type)
+        if delta < config.STRIKE_MIN_DELTA:
+            continue
+        move = (q.ltp * config.TARGET_PCT_T1 / 100) / delta if delta > 0 else float("inf")
+        if atr > 0 and move > config.STRIKE_MAX_MOVE_ATR_FRAC * atr:
+            continue
+        if (q.volume or 0) < config.STRIKE_MIN_VOLUME or (q.oi or 0) < config.STRIKE_MIN_OI:
+            continue
+        if (wall_strike is not None and wall_oi >= config.STRIKE_OI_WALL_RATIO * max(q.oi or 0, 1)
+                and ((option_type == "CE" and q.strike >= wall_strike) or (option_type == "PE" and q.strike <= wall_strike))):
+            continue
+        cand = (abs(steps), -delta)          # closest to the money first, then highest delta
+        if best is None or cand < best[0]:
+            best = (cand, q, steps, delta, move, cost)
+    if best is None:
+        return None
+    _, q, steps, delta, move, cost = best
+    where = "at the money" if steps == 0 else (f"{abs(steps)} strike(s) {'out of' if steps > 0 else 'in'} the money")
+    reasons = [
+        f"cost ₹{cost:,.0f} per lot (limit ₹{max_cost:,.0f})" if max_cost else f"cost ₹{cost:,.0f} per lot",
+        where,
+        f"delta about {delta:.2f}",
+        (f"needs about {move:,.1f} points for Target 1 ({move / atr * 100:.0f}% of the usual daily range {atr:,.0f})"
+         if atr > 0 else f"needs about {move:,.1f} points for Target 1"),
+        f"volume {int(q.volume or 0):,}, open interest {int(q.oi or 0):,}",
+        "no big opposing open-interest wall in the way",
+    ]
+    return {"leg": q, "reasons": reasons, "delta": round(delta, 2), "steps": steps}
+
+
+def build_trade_idea(snapshot: UnderlyingSnapshot, screen_result: ScreenResult, leg: OptionQuote = None,
+                     strike_pick: dict = None) -> TradeIdea | None:
+    """leg / strike_pick: use this contract instead of the default at-the-money one (see pick_reasoned_strike)."""
     if screen_result.bias not in ("BULLISH", "BEARISH"):
         return None
 
     option_type = "CE" if screen_result.bias == "BULLISH" else "PE"
-    leg = _pick_strike(snapshot, option_type)
+    if leg is None:
+        leg = _pick_strike(snapshot, option_type)
     if leg is None or leg.ltp <= 0:
         return None
 
@@ -143,6 +243,7 @@ def build_trade_idea(snapshot: UnderlyingSnapshot, screen_result: ScreenResult) 
             "spot_chg_pct": round((snapshot.spot / snapshot.prev_close - 1) * 100, 2) if snapshot.prev_close else None,
             "is_index": is_index(snapshot.symbol),
             "cost_per_lot": round(entry * max(int(leg.lot_size or 1), 1), 2),
+            **({"strike_pick": list(strike_pick["reasons"]), "variant": "reasoned_strike"} if strike_pick else {}),
         },
     )
 

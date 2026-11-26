@@ -1,4 +1,4 @@
-# DRAFT - ideas collected on 26 Nov 2026 (NOT built, NOT active)
+# IDEAS collected on 26 Nov 2026 - BUILT in the 26 Nov evening release (D1, D2 shadow test, D3 live volume) after the session analysis
 
 Rule: nothing here is changed in the bot until Ajith says so after the end-of-day analysis. The running settings stay
 frozen. Add new ideas to the bottom as they come.

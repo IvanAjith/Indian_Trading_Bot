@@ -59,10 +59,28 @@ def _momentum_score(closes: pd.Series) -> tuple[float, str, float]:
     return score, bias, float(r)
 
 
-def _volume_score(day_volume: int, avg_20d: float) -> tuple[float, float]:
+def _day_share(now=None) -> float:
+    """Share of a normal day's volume usually traded by this IST time (config.VOLUME_DAY_PROFILE), 0..1."""
+    import datetime as _dt
+    now = now or _dt.datetime.now()
+    cur = now.hour * 60 + now.minute
+    pts = [(int(t[:2]) * 60 + int(t[3:]), f) for t, f in config.VOLUME_DAY_PROFILE]
+    if cur <= pts[0][0]:
+        return pts[0][1]
+    for (t0, f0), (t1, f1) in zip(pts, pts[1:]):
+        if cur <= t1:
+            return f0 + (f1 - f0) * (cur - t0) / (t1 - t0)
+    return pts[-1][1]
+
+
+def _volume_score(day_volume: int, avg_20d: float, now=None) -> tuple[float, float]:
     if avg_20d <= 0:
         return 50.0, 1.0
-    ratio = day_volume / avg_20d
+    if getattr(config, "VOLUME_TIME_ADJUST", False):
+        share = max(_day_share(now), config.VOLUME_PROFILE_MIN_SHARE)
+        ratio = day_volume / (avg_20d * share)
+    else:
+        ratio = day_volume / avg_20d
     score = min(100.0, max(0.0, (ratio - 1) * 60 + 40))
     return score, ratio
 
