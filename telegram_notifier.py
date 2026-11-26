@@ -59,6 +59,8 @@ def _now_str() -> str:
 def format_signal_message(idea) -> str:
     expiry_short = _format_expiry_short(idea.expiry)
     reasons = "; ".join(idea.reasons) if idea.reasons else "momentum setup"
+    t3_line = (f"\U0001F3AF Target 3: ₹{idea.target3:.2f}\n"
+               if getattr(idea, "n_targets", 3) >= 3 else "")
     return (
         f"\U0001F6A8\U0001F6A8 <b>ENTRY ALERT - BUY NOW</b> \U0001F6A8\U0001F6A8\n"
         f"\U0001F7E2 BUY {idea.symbol} {expiry_short} {fmt_strike(idea.strike)} {idea.option_type} "
@@ -66,7 +68,7 @@ def format_signal_message(idea) -> str:
         f"⏰ {_now_str()}\n\n"
         f"\U0001F3AF Target 1: ₹{idea.target1:.2f}\n"
         f"\U0001F3AF Target 2: ₹{idea.target2:.2f}\n"
-        f"{f'\U0001F3AF Target 3: ₹{idea.target3:.2f}' + chr(10) if getattr(idea, 'n_targets', 3) >= 3 else ''}"
+        f"{t3_line}"
         f"\U0001F6D1 Stoploss: ₹{idea.stoploss:.2f}\n\n"
         f"\U0001F4E6 Lot size {idea.lot_size} | 1 lot costs ₹{idea.entry * idea.lot_size:,.0f} | "
         f"max loss at SL ≈ ₹{(idea.entry - idea.stoploss) * idea.lot_size:,.0f} per lot\n\n"
