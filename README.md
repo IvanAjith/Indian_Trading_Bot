@@ -17,17 +17,18 @@ rules really work before risking money.
 | Time (IST) | What the bot does |
 |---|---|
 | **20:00 (evening before)** | `Market holiday notice` job messages you only if tomorrow is a weekday NSE holiday |
-| **~09:15** | Session starts, logs in to Angel One, sends **🟢 Bot started** |
-| **09:15 - 09:20** | Waits, then confirms via live data that NSE actually traded today. If not (holiday) it sends **📅 Market closed today** and stops |
+| **~09:00** | An outside timer (cron-job.org) starts the bot; GitHub's own early slots (08:37 - 09:12) are backups. The session logs in to Angel One and sends **🟢 Bot started** |
+| **until 09:20** | Waits and **pre-loads the daily history** for every symbol, then confirms via live data that NSE actually traded today. If not (holiday) it sends **📅 Market closed today** and stops |
 | **09:20 - 14:45** | Scans continuously. Sends heads-ups, buy signals, target / stoploss alerts; paper-trades each signal |
 | **14:45 - 15:10** | **No new alerts or heads-ups** (too little time before the square-off); later signals are tracked silently for the journal. Open trades keep being managed. |
 | **~14:55** | End-of-day check-in for any position still open |
 | **15:10** | Every open paper position is squared off, so nothing is carried to the next day |
-| **15:12** | Session ends and sends the **daily summary** (signals, exits, P&L, bot health); the trade journal is saved |
+| **15:12** | Session ends and sends the **daily summary** (signals, exits, P&L, bot health); the trade journal is saved, and a short **🧪 Nightly learning** note follows (see "Learning loop" below) |
 | **Friday 17:00** | Weekly review of the whole journal sent to Telegram |
 
-If you get no "Bot started" message by ~09:45 on a trading day, something is wrong - open the repo's
-**Actions** tab. GitHub also emails you when a run fails, and the bot sends **❌ Run FAILED**.
+If you get no "Bot started" message by ~09:15 on a trading day, start the bot by hand (Actions -> NSE options signal bot ->
+Run workflow) and check the cron-job.org timer (see `GITHUB_ACTIONS_DEPLOY.md`). GitHub also emails you when a run fails,
+and the bot sends **❌ Run FAILED**.
 
 ---
 
@@ -38,8 +39,8 @@ If you get no "Bot started" message by ~09:45 on a trading day, something is wro
   their near-the-money options (open-interest value) and scans the **top 80**, plus your curated list in
   `config.py` (if those still have live options). About 85-90 symbols in total.
 - Per symbol: the nearest expiry, at-the-money strike ±3 (7 CE and 7 PE contracts).
-- Prices are fetched ~40 per API call, so a full scan takes roughly a minute (an estimate - the real
-  figure is in the run's `monitor.log`). It is **polling, not live streaming**: a spike between two scans
+- Prices are fetched ~40 per API call. Since 26 Nov a scan is **two-stage** (option chains only where they can matter), aiming at about 30 seconds per scan
+  instead of ~90 (an estimate - the real figure is the "Scan time" line in the daily summary). It is **polling, not live streaming**: a spike between two scans
   can be missed.
 
 ## How a signal is decided
@@ -59,7 +60,7 @@ Each symbol gets a 0-100 **score**:
     every alert is something a ₹1 lakh account can take (about 3 trades at once). Skipped ones are counted in the
     daily summary. Index options like BANKNIFTY/FINNIFTY usually fall out; NIFTY stays.
   - **At most 2 alerts per scan** (`MAX_ALERTS_PER_SCAN`), best score first, to avoid an opening burst. Nothing is
-    lost: a signal that does not fit in this scan alerts in the next one, a minute or two later, if it still qualifies.
+    lost: a signal that does not fit in this scan alerts in the next one, shortly after, if it still qualifies.
   - **One alert per stock/index per day** (see below).
 - **How the score is built (0-100):** 40% momentum (RSI and trend), 20% volume (live traded volume vs the 20-day average),
   30% option open interest, 10% IV. Three changes learned from 26 Nov 2026 (`OI_DIRECTION_AWARE`, `STRETCHED_RSI_PENALTY`,
@@ -67,7 +68,7 @@ Each symbol gets a 0-100 **score**:
   a put needs put build-up); a **stretched trend** (stock call with RSI 70+, put with RSI 30 or below) loses 5 points; and a
   **continuation** (the stock already moved 2%+ in the trade's direction, with agreeing OI and a trend not stretched) gains 6.
   These come from one day (21 stock trades) - the weekly review checks them and they are re-examined at the 11 and 18 Dec checkpoints.
-- Score **65 to 69.9** → **no alert**. These signals are paper-traded **silently** (`SHADOW_TRACK_LOWER_BAND`) and
+- Score **60 to 69.9** → **no alert**. These signals are paper-traded **silently** (`SHADOW_TRACK_LOWER_BAND`, at most 40 a day, none after 14:55) and
   written to the journal, so the weekly review can show whether the lower band really does worse. The summary has a
   "🔇 Silent tracking" line; they never appear in `/trades` or in your totals. If the silent trades turn out as good
   as the alerted ones, the alert score can come down; if clearly worse, it stays.
@@ -125,7 +126,7 @@ Each symbol gets a 0-100 **score**:
   your alerts one-to-one. No cap on open positions.
 - **Lot size** comes from Angel One's contract list (e.g. NIFTY 65, BANKNIFTY 30). If you set
   `LOTS_PER_TRADE_INDEX` / `LOTS_PER_TRADE_STOCK` to `None`, the size follows the 5% max-loss rule instead (and a 1-lot trade exits fully at T2).
-- Everything is squared off at **15:10** and the session ends at **15:12**. (GitHub stops a job after 6 hours, so a 09:15 start cannot run much past 15:12.) In your real account, close any trade still open by hand.
+- Everything is squared off at **15:10** and the session ends at **15:12**. (GitHub stops a job after 6 hours, so a session started at 09:00 or later can run to 15:12.) In your real account, close any trade still open by hand.
 
 ---
 
@@ -288,6 +289,13 @@ Optional visual backtest (approximate - uses daily candles and a fixed-delta pre
   trend, chasing a big move, opening volatility, late entry, barely-passing score, a stop hit within minutes. They are
   labelled "likely contributors": hints, not proof.
 - **Lesson and how to improve:** one concrete suggestion per warning factor.
+- **Factors added 26 Nov 2026** (from the silent winners TCS/HCLTECH): *OI against the trade*, *trend stretched* (RSI 70+ call / 30- put),
+  and the good factor *continuation profile*; open interest now counts as "confirming" only when it agrees with the trade. The
+  weekly review also shows how the **good factors** go with wins, and lists every **silent trade that reached Target 1** with what it had
+  in common, so such trades are not missed again. Old rows are re-read with the current rules.
+- **Nightly rule lab** (`rule_lab.py`): after each session it replays candidate rules on the journal (out-of-sample days only count),
+  runs data checks and writes `journal/lab/<date>.md` and `journal/lab/candidates.md`; a short **🧪 Nightly learning** note goes to
+  Telegram. The weekly review includes the candidate table.
 
 Entries are saved after each run to the **`journal-data` branch** of this repo (`journal/YYYY-MM-DD.md` for reading,
 `journal/trades.jsonl` for analysis), so they build up from day to day.
@@ -307,7 +315,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 |---|---|---|
 | `NO_ALERTS_AFTER` | 14:45 | No new alerts or heads-ups after this time; later signals are tracked silently |
 | `ALERT_SCORE` | 70 | Entry alerts for every signal at or above this score |
-| `MIN_SIGNAL_SCORE` / `SHADOW_TRACK_LOWER_BAND` | 65 / True | Floor for any signal; signals between 65 and the alert score are tracked silently for learning |
+| `MIN_SIGNAL_SCORE` / `SHADOW_TRACK_LOWER_BAND` | 60 / True | Floor for any signal; signals between 60 and the alert score are tracked silently for learning |
 | `WATCHLIST_MIN_SCORE` | 65 | Heads-ups for scores from here up to the alert score |
 | `MAX_COST_PER_LOT`, `MAX_ALERTS_PER_SCAN`, `MAX_ALERTS_PER_DAY` | 35,000, 2, None | Budget filter (cost of 1 lot), alerts per scan, optional alerts-per-day limit (None = no limit) |
 | `STOPLOSS_PCT`, `TARGET_PCT_T1/T2/T3` | 18, 15/30/50 | Stop and targets on the option price |
@@ -331,7 +339,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 
 | File | Purpose |
 |---|---|
-| `.github/workflows/bot.yml` | The daily session (weekdays, 09:15 IST) |
+| `.github/workflows/bot.yml` | The daily session (weekdays; started ~09:00 IST by the outside timer, early GitHub slots 08:37-09:12 as backup) |
 | `.github/workflows/holiday-notice.yml` | 20:00 IST "market closed tomorrow" notice |
 | `main.py` | Orchestrator: scan loop, alerts, Telegram commands, session start/end |
 | `angelone_provider.py` | Angel One data feed (batched quotes, lot sizes, auto universe, market-open check) |
@@ -343,6 +351,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `market_calendar.py`, `holiday_notice.py`, `market_holidays.json` | Holiday lookup and notice |
 | `backtest.py`, `backtest_report.py` | Approximate historical check and HTML report |
 | `diagnose_angelone.py` | Prints raw Angel One responses to debug login/data |
+| `rule_lab.py`, `rediagnose_journal.py` | Nightly learning loop (candidate rules replayed on the journal, data checks) and a helper that re-reads old journal rows with the current rules |
 | `journal.py`, `weekly_review.py`, `save_journal.py` | The per-trade journal, the weekly pattern review, and the helper that saves the journal |
 | `.github/workflows/weekly-review.yml` | Friday 17:00 IST weekly review |
 | `config.py` | All settings |
