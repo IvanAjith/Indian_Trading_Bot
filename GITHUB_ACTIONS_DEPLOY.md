@@ -59,3 +59,34 @@ The first scan of the day is slower (it downloads daily candles for every symbol
   from nseindia.com -> Resources -> Exchange Communication -> Holidays). NSE publishes next year's list
   around December, so refresh the file then. Test it: Actions -> "Market holiday notice" -> Run
   workflow with `today` = the day before a holiday, e.g. `2026-12-24`.
+
+---
+
+## Reliable daily start: outside timer (cron-job.org) + early backup slots
+
+GitHub's own scheduler is best-effort (on 25-26 Nov 2026 it started runs up to 9 hours late or not at all).
+`bot.yml` therefore has five early slots (08:37 - 09:12 IST), **and** a free outside timer calls GitHub at the
+right minute. The bot waits by itself until 09:20 IST before scanning, so starting early is harmless.
+
+**1. Create a GitHub token (once)**
+GitHub -> your profile picture -> Settings -> Developer settings -> Personal access tokens -> *Fine-grained tokens*
+-> Generate new token. Repository access: **Only select repositories -> Indian_Trading_Bot**. Permissions ->
+Repository permissions -> **Actions: Read and write** (nothing else). Expiration: the longest offered (set a
+reminder to renew it). Copy the token (`github_pat_...`). Never paste it in chat, in the repo, or in Telegram.
+
+**2. Create the timer on cron-job.org (free account)**
+Create cronjob with:
+- URL: `https://api.github.com/repos/IvanAjith/Indian_Trading_Bot/actions/workflows/bot.yml/dispatches`
+- Schedule (Advanced / custom): time zone **Asia/Kolkata**, Monday-Friday, **09:00** (and a second job at **09:10**)
+- Request method: **POST**; request body: `{"ref":"main"}`
+- Headers:
+  - `Authorization: Bearer <your token>`
+  - `Accept: application/vnd.github+json`
+  - `X-GitHub-Api-Version: 2022-11-28`
+  - `User-Agent: nse-bot-timer`
+  - `Content-Type: application/json`
+- Turn on "notify me on failure".
+GitHub answers **204 No Content** when it worked. Use the "Test run" button once (on a trading day before 15:12 this
+really starts a session - that is fine).
+
+Extra starts are harmless: only one session runs at a time and a queued extra exits once the session is over.
