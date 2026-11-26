@@ -55,6 +55,19 @@ The chain fetched now is ATM +-3 strikes, so offsets up to 3 need no new data ca
 Note on D2 (Ajith, 26 Nov): the strike must be accurate and justified - analysed from the option chain, never "any strike that fits the
 budget". One step away is the maximum distance to consider first; the alert must explain why the strike was picked.
 
+## D3. FOUND 26 Nov 14:05 - stale "today's volume" explains the quiet morning and the 13:59 burst (BUG, not a rule)
+Evidence (code): the screener's volume factor uses `snapshot.day_volume` = today's volume from the DAILY candle history
+(`angelone_provider._make_snapshot`, `screener._volume_score`). That history is cached for 4 hours (`_history_cache_max_age = 4*3600`);
+only the price is patched live (`_with_live_today`), NOT the volume.
+Session #9 started 09:49, first history download ~09:55-10:00 -> today's volume frozen at its ~10:00 value (small) for 4 hours ->
+"volume unremarkable" all morning, scores suppressed -> cache expired ~13:55-14:00 -> volumes refreshed to the afternoon
+cumulative figure -> volume ratios 1.6x-2.0x -> scores jumped -> burst of alerts/watch messages at 13:59-14:05
+(APLAPOLLO 1.6x, VMM 2.0x). To be confirmed from the run log at 15:35 (history refresh time, scan times).
+Consequences: 26 Nov morning scores were understated; alerts cluster late (also true on 25 Nov: 14:52, 15:09).
+Proposed fix (needs Ajith's OK): use the LIVE traded volume from the quote row each scan (getMarketData FULL has `tradeVolume`) instead of the cached candle.
+Related strategy question (separate, after the review): cumulative volume vs a FULL-day 20-day average is naturally low in the morning and high late
+in the day; a time-of-day-adjusted ratio (volume so far vs the usual volume by this time) would treat all hours fairly.
+
 ## Ideas log (add below)
 - (none yet)
 
