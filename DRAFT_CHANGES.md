@@ -68,6 +68,13 @@ Proposed fix (needs Ajith's OK): use the LIVE traded volume from the quote row e
 Related strategy question (separate, after the review): cumulative volume vs a FULL-day 20-day average is naturally low in the morning and high late
 in the day; a time-of-day-adjusted ratio (volume so far vs the usual volume by this time) would treat all hours fairly.
 
+## D4. Silent winners TCS/HCLTECH - findings (26 Nov, after the session) - decisions pending
+Full write-up: `journal/notes/2026-11-26-silent-winners.md` on the journal-data branch (copied below in short).
+- The OI part of the score gives full points to OI build-up in the WRONG direction (call + short build-up: 1 win in 7). Candidate fix D4a.
+- RSI stretched (calls 70+/puts 30-): 3 wins in 12, -28,190. Candidate D4b.
+- Continuation profile (2%+ move, OI agreeing, RSI not stretched): TCS, HCLTECH, INFY, WIPRO = +16,254, both T1 trades. Candidate D4c.
+- Journal now tracks oi_against, stretched, continuation; the weekly review compares them and lists silent T1 trades. Scoring itself NOT changed.
+
 ## Ideas log (add below)
 - (none yet)
 
