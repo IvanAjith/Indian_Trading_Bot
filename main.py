@@ -531,6 +531,29 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         "trades": _handle_trades, "pnl": _handle_pnl,
     }
 
+    quick = {"at": 0.0}
+
+    def _quick_mark():
+        """Re-price the open (and silently tracked) trades with one small quote call and book any
+        target / stoploss / time exit at once, instead of waiting for the next full scan to finish."""
+        if account is None or provider is None or not hasattr(provider, "quick_prices"):
+            return
+        if time.time() - quick["at"] < config.QUICK_CHECK_SECONDS:
+            return
+        quick["at"] = time.time()
+        live = [p for p in account.open_positions + account.shadow_positions
+                if p.status != "CLOSED" and p.lots_remaining > 0]
+        if not live:
+            return
+        try:
+            prices = provider.quick_prices({(p.symbol, p.strike, p.option_type, p.expiry) for p in live})
+            for p in live:
+                ltp = prices.get((p.symbol, p.strike, p.option_type, p.expiry))
+                if ltp:
+                    account.mark_to_market(p.symbol, p.option_type, p.strike, ltp)
+        except Exception as exc:   # never let the fast check disturb the session
+            print(f"[quick] price check failed (not fatal): {exc}")
+
     def _sleep_with_status_polling(total_seconds: float):
         nonlocal telegram_offset
         elapsed = 0.0
@@ -539,6 +562,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             this_step = min(step, total_seconds - elapsed)
             time.sleep(this_step)
             elapsed += this_step
+            _quick_mark()
             if config.TELEGRAM_ENABLED:
                 telegram_offset = poll_status_requests(telegram_offset, telegram_commands)
 
@@ -583,6 +607,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             worker.join(timeout=config.STATUS_POLL_INTERVAL_SECONDS)
             if session_end and worker.is_alive() and dt.datetime.now().strftime("%H:%M") >= session_end:
                 return None   # session over while a scan is still running: stop waiting, end the session now
+            if worker.is_alive():
+                _quick_mark()
             if worker.is_alive() and config.TELEGRAM_ENABLED:
                 telegram_offset = poll_status_requests(telegram_offset, telegram_commands)
         if "error" in box:
