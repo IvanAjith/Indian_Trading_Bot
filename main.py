@@ -400,7 +400,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         """Why a NEW alert for this underlying must be suppressed, or None.
         First alert of the day: always allowed. After that (rules agreed 26 Nov 2026):
           - never while the earlier call is still open (wait until it is closed);
-          - STOCKS: the new score must be ABOVE REALERT_MIN_SCORE (80), no daily limit;
+          - STOCKS: one alert per stock per day (REALERT_MAX_PER_DAY = 0), whether the call made a profit or a loss;
           - INDEXES: the normal alert score is enough, but REALERT_GAP_MINUTES_INDEX minutes must have passed since the earlier
             call closed, and at most REALERT_MAX_PER_DAY_INDEX alerts per index per day in total.
         The strike rule (a different strike after a profit, the same strike allowed after a loss) is applied once the contract
@@ -541,7 +541,10 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             f"Entry ₹{pos.entry:.2f} | {pos.lots_total} lot(s) x {lot_size}\n"
             f"SL ₹{pos.stoploss:.2f} | T1 ₹{pos.target1:.2f} T2 ₹{pos.target2:.2f}"
             f"{f' T3 ₹{pos.target3:.2f}' if pos.n_targets >= 3 else ''}\n"
-            f"I'll alert you on T1 / exits. Another {symbol} alert only after this trade is closed and with a score above {config.REALERT_MIN_SCORE:.0f}."
+            f"I'll alert you on T1 / exits. " + (
+                f"Another {symbol} alert only after this trade is closed, {config.REALERT_GAP_MINUTES_INDEX:g} minutes later "
+                f"(max {config.REALERT_MAX_PER_DAY_INDEX} a day)." if _is_index_symbol(symbol)
+                else f"No more {symbol} alerts today.")
         )
 
     def _handle_help(_arg: str = "") -> str:
@@ -933,8 +936,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                     if tag not in state["suppressed_logged"]:
                         state["suppressed_logged"].add(tag)
                         print(f"[monitor] {now:%H:%M} - no new {r.symbol} alert: {blocked} "
-                              f"(repeat rules: earlier call closed; stocks need a score above {config.REALERT_MIN_SCORE:.0f}; "
-                              f"indexes need {config.REALERT_GAP_MINUTES_INDEX:g} min since the close, max {config.REALERT_MAX_PER_DAY_INDEX} a day).")
+                              f"(stocks: one alert per day; indexes: earlier call closed, {config.REALERT_GAP_MINUTES_INDEX:g} min since the close, "
+                              f"max {config.REALERT_MAX_PER_DAY_INDEX} a day).")
                     continue
                 snap_r = snap_by_symbol[r.symbol]
                 idea = build_trade_idea(snap_r, r)

@@ -93,10 +93,10 @@ Each symbol gets a 0-100 **score**:
 - **One open call per stock/index at a time; repeats only under strict rules.** The first alert of the day on a
   stock/index is always allowed. After that, a repeat alert on the same name needs the earlier call to be **closed** (never while
   it is open) and:
-  - **Stocks:** a score **above 80** (`REALERT_MIN_SCORE`); no daily limit.
+  - **Stocks:** **no repeat** - one alert per stock per day, whether it ended in profit or loss (`REALERT_MAX_PER_DAY = 0`).
   - **Indexes (NIFTY, BANKNIFTY, FINNIFTY):** the normal alert score (70+) is enough, but **30 minutes** must have passed since the earlier
     call closed (`REALERT_GAP_MINUTES_INDEX`), and at most **3 alerts per index per day** in total (`REALERT_MAX_PER_DAY_INDEX`).
-  - **Strike rule (both):** after a **profit** (the earlier call reached Target 1, or closed in the green at the square-off) the new call
+  - **Strike rule (indexes):** after a **profit** (the earlier call reached Target 1, or closed in the green at the square-off) the new call
     must be at a **different strike** from every profitable call that day; after a **loss** the same strike is allowed. CE and PE alike.
   A name that has alerted gets no heads-up. Trades you register with `/add` count as that symbol's alert.
 - **Reasoned strike choice.** If the at-the-money contract costs more than ₹35,000 per lot, or a repeat call must
@@ -325,7 +325,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `STOPLOSS_PCT`, `TARGET_PCT_T1/T2/T3` | 18, 15/30/50 | Stop and targets on the option price |
 | `LOTS_PER_TRADE_INDEX`, `TARGETS_INDEX`, `LOTS_PER_TRADE_STOCK`, `TARGETS_STOCK` | 3, 3, 2, 2 | Lots bought and number of targets for index trades and for stock trades (1 lot sold at each target) |
 | `MOVE_SL_TO_COST_AFTER_T1`, `TRAIL_SL_TO_T1_AFTER_T2` | True, True | Stop to cost after T1; for index trades, stop to the T1 price after T2 |
-| `ONE_ALERT_PER_UNDERLYING_PER_DAY`, `REALERT_MIN_SCORE`, `REALERT_MAX_PER_DAY`, `REALERT_MIN_SCORE_INDEX`, `REALERT_GAP_MINUTES_INDEX`, `REALERT_MAX_PER_DAY_INDEX` | True, 80, None, None, 30, 3 | Repeat alerts on the same stock/index: earlier call closed, score above 80, different strike after a profit (same strike allowed after a loss), no daily limit |
+| `ONE_ALERT_PER_UNDERLYING_PER_DAY`, `REALERT_MIN_SCORE`, `REALERT_MAX_PER_DAY`, `REALERT_MIN_SCORE_INDEX`, `REALERT_GAP_MINUTES_INDEX`, `REALERT_MAX_PER_DAY_INDEX` | True, 80, 0, None, 30, 3 | Repeat alerts on the same stock/index: earlier call closed, score above 80, different strike after a profit (same strike allowed after a loss), no daily limit |
 | `VOLUME_TIME_ADJUST`, `VOLUME_DAY_PROFILE` | False | Compare volume with the usual volume by this time of day (off: plain 20-day average) |
 | `CHEAPER_STRIKE_SHADOW`, `CHEAPER_STRIKE_ALERTS`, `STRIKE_MIN_DELTA`, `STRIKE_MAX_MOVE_ATR_FRAC`, `STRIKE_MIN_VOLUME`, `STRIKE_MIN_OI`, `STRIKE_OI_WALL_RATIO` | True, False, 0.25, 0.35, 200, 1000, 1.5 | Reasoned strike choice: silent test on, real alerts off |
 | `TWO_STAGE_SCAN`, `TWO_STAGE_FULL_EVERY`, `PRELOAD_BEFORE_OPEN`, `SILENT_TRACK_UNTIL` | True, 20, True, 14:55 | Faster scans (option chains only where they can matter), history pre-loaded before the open, no silent trades in the last 15 minutes |
