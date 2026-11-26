@@ -382,14 +382,29 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         """Strikes of today's profitable calls on this underlying (a repeat call must avoid all of them)."""
         return {p.strike for p in _alerted_positions(symbol) if _is_profit(p)}
 
+    def _is_index_symbol(symbol: str) -> bool:
+        return symbol.upper() in {x.upper() for x in config.INDEX_UNIVERSE}
+
+    def _last_close_time(positions):
+        """When the most recently closed call on this underlying was closed (None if unknown)."""
+        times = []
+        for p in positions:
+            if p.status == "CLOSED" and p.fills:
+                try:
+                    times.append(dt.datetime.fromisoformat(p.fills[-1].at))
+                except (TypeError, ValueError):
+                    pass
+        return max(times) if times else None
+
     def _alert_block_reason(symbol: str, score: float = None, watch: bool = False):
         """Why a NEW alert for this underlying must be suppressed, or None.
-        First alert of the day: always allowed. After that (the rule agreed 26 Nov 2026):
-          - never while the earlier call is still open (wait until it is closed),
-          - the new score must be ABOVE REALERT_MIN_SCORE (80),
-          - no daily limit (REALERT_MAX_PER_DAY None); applies to indexes and stocks, CE and PE.
-        The strike rule (a different strike after a profit, same strike allowed after a loss) is applied once the
-        contract is known - see _strike_conflict. Heads-up (watch) messages are never sent once it has alerted."""
+        First alert of the day: always allowed. After that (rules agreed 26 Nov 2026):
+          - never while the earlier call is still open (wait until it is closed);
+          - STOCKS: the new score must be ABOVE REALERT_MIN_SCORE (80), no daily limit;
+          - INDEXES: the normal alert score is enough, but REALERT_GAP_MINUTES_INDEX minutes must have passed since the earlier
+            call closed, and at most REALERT_MAX_PER_DAY_INDEX alerts per index per day in total.
+        The strike rule (a different strike after a profit, the same strike allowed after a loss) is applied once the contract
+        is known. Heads-up (watch) messages are never sent once a name has alerted."""
         if not config.ONE_ALERT_PER_UNDERLYING_PER_DAY:
             return None
         mine = _alerted_positions(symbol)
@@ -400,6 +415,17 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             return "already alerted today"
         if any(p.status != "CLOSED" and p.lots_remaining > 0 for p in mine):
             return "its earlier call is still open"
+        if _is_index_symbol(symbol):
+            cap = config.REALERT_MAX_PER_DAY_INDEX
+            if cap is not None and count >= cap:
+                return f"already alerted {count} times today (limit {cap} per index)"
+            gap = config.REALERT_GAP_MINUTES_INDEX
+            last_close = _last_close_time(mine)
+            if gap and last_close is not None and (dt.datetime.now() - last_close).total_seconds() < gap * 60:
+                return f"its earlier call closed less than {gap:g} minutes ago"
+            if config.REALERT_MIN_SCORE_INDEX is not None and not (score is not None and score > config.REALERT_MIN_SCORE_INDEX):
+                return "already alerted today"
+            return None
         if score is None or not score > config.REALERT_MIN_SCORE:
             return "already alerted today"
         if config.REALERT_MAX_PER_DAY is not None and count - 1 >= config.REALERT_MAX_PER_DAY:
@@ -907,7 +933,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                     if tag not in state["suppressed_logged"]:
                         state["suppressed_logged"].add(tag)
                         print(f"[monitor] {now:%H:%M} - no new {r.symbol} alert: {blocked} "
-                              f"(a repeat needs a closed earlier call and a score above {config.REALERT_MIN_SCORE:.0f}).")
+                              f"(repeat rules: earlier call closed; stocks need a score above {config.REALERT_MIN_SCORE:.0f}; "
+                              f"indexes need {config.REALERT_GAP_MINUTES_INDEX:g} min since the close, max {config.REALERT_MAX_PER_DAY_INDEX} a day).")
                     continue
                 snap_r = snap_by_symbol[r.symbol]
                 idea = build_trade_idea(snap_r, r)
@@ -930,15 +957,19 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                     if not idea:
                         continue
                 if _over_budget(idea.entry, idea.lot_size):
-                    # too expensive for the account: no alert, but remember it for the daily summary
-                    state["skipped_budget"][idea.symbol] = round(idea.entry * idea.lot_size)
+                    # ATM costs more than the budget: look along the chain for a cheaper strike chosen by reasons (an alert),
+                    # otherwise skip it (counted in the daily summary) and test the reasoned strike silently
+                    atm_cost = round(idea.entry * idea.lot_size)
                     pick = None
                     if config.CHEAPER_STRIKE_ALERTS:
                         pick = pick_reasoned_strike(snap_r, option_type, exclude_strikes=used_strikes, sides="otm")
                     if pick is not None:
                         idea = build_trade_idea(snap_r, r, leg=pick["leg"], strike_pick=pick)
+                        if idea:
+                            idea.context["atm_cost_per_lot"] = atm_cost
                     if pick is None or not idea:
-                        _shadow_cheaper(r)         # not alerted: test the reasoned strike silently
+                        state["skipped_budget"][r.symbol] = atm_cost
+                        _shadow_cheaper(r)
                         continue
                 key = (idea.symbol, idea.option_type, idea.strike, idea.expiry, today.isoformat())
                 is_repeat = bool(state["alerts_by_symbol"].get(idea.symbol, 0) or _alerted_positions(idea.symbol))
