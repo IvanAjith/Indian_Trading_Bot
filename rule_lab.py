@@ -135,6 +135,11 @@ CANDIDATES = [
      "delta": lambda r: 0.0,
      "gate": lambda r: (not is_stock(r)) or (r.get("trend_daily") or {}).get("ema_gap_pct") is None or
                        (((r["trend_daily"]["ema_gap_pct"] if r.get("option_type") == "CE" else -r["trend_daily"]["ema_gap_pct"])) >= 1.0)},
+    {"name": "continuation_late_day", "proposed": "2026-11-27",
+     "desc": "the continuation bonus counts only once the day's direction is established (entry 11:30 or later) and is raised there (+8 more); an early 'continuation' (first 2 hours) loses its +6",
+     "delta": lambda r: (0.0 if not (not stretched(r) and moved_pct(r) >= config.CONTINUATION_MIN_MOVE_PCT and oi_aligned(r))
+                         else (-config.CONTINUATION_BONUS if (r.get("entry_clock") or "") < "11:30" else 8.0)),
+     "gate": lambda r: True},
     {"name": "alert_score_73", "proposed": "2026-11-27",
      "desc": "raise the alert score from 70 to 73 (the 70-72.9 band went 0 for 4 on 26-27 Nov)",
      "delta": lambda r: -3.0, "gate": lambda r: True},
