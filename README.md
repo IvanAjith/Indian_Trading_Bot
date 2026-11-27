@@ -131,6 +131,13 @@ Each symbol gets a 0-100 **score**:
   **15-minute trend** (EMA9 vs EMA20 and price vs the day's VWAP) as information, and the journal records it for every trade
   (`intraday`), with new factors `intraday_against` / `intraday_agrees`. It does not change any score. The nightly rule lab tests the
   candidate "intraday_15m_must_agree"; it becomes a rule only if the data supports it at a weekly meeting.
+- **Support/resistance and the silent index-regime test (added 27 Nov, information only).** Every trade now records its support and resistance
+  levels (20-day high/low, previous day's high/low, pivot points, round numbers) and the room to the next level in its direction
+  (`trend_daily.levels`), plus the day's high/low and the previous day's high/low from 15-minute data (`intraday`). Separately, every 5 minutes the bot
+  reads **NIFTY, BANKNIFTY and FINNIFTY** (15-minute EMA9 vs EMA20, price vs the day's VWAP, the day's change) and logs the regime
+  (`journal/regime-<date>.jsonl`). When an index turns bullish/bearish it opens a **silent** ATM paper trade (max 3 per index per day,
+  within the budget and loss cap). **No alert is sent**; the nightly lab compares these trades with the daily-trend index trades
+  (`INDEX_REGIME_SHADOW`, `REGIME_*` in `config.py`). Lab candidate `room_to_level_1pct` tests the room-to-run check for stocks.
 - **Volume is live.** Today's traded volume is read from the live quote on every scan (an earlier version used a
   daily candle cached for 4 hours, which made morning scores too low and caused an alert burst at the refresh).
   `VOLUME_TIME_ADJUST` (off by default) can compare volume with what is usual by this time of day.
@@ -342,6 +349,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `TWO_STAGE_SCAN`, `TWO_STAGE_FULL_EVERY`, `PRELOAD_BEFORE_OPEN`, `SILENT_TRACK_UNTIL` | True, 20, True, 14:55 | Faster scans (option chains only where they can matter), history pre-loaded before the open, no silent trades in the last 15 minutes |
 | `OI_DIRECTION_AWARE`, `STRETCHED_RSI_PENALTY`, `STRETCHED_RSI_HIGH/LOW`, `CONTINUATION_BONUS`, `CONTINUATION_MIN_MOVE_PCT` | True, 5, 70/30, 6, 2.0 | Score changes learned from the 26 Nov silent winners (set a penalty/bonus to 0 to switch it off) |
 | `RULES_VERSION`, `SILENT_MAX_PER_DAY`, `NIGHTLY_LEARNING_TELEGRAM`, `MIN_SIGNAL_SCORE` | v2-2026-11-26, 40, True, 60 | Learning loop: rule version stamp, silent-trade cap, nightly Telegram note, silent-tracking floor |
+| `INDEX_REGIME_SHADOW`, `REGIME_CHECK_SECONDS`, `REGIME_DAY_CHANGE_PCT`, `REGIME_MAX_TRADES_PER_INDEX` | True, 300, 0.3, 3 | Silent intraday index-regime test (no alerts) |
 | `QUICK_CHECK_SECONDS` | 20 | Open trades are re-priced this often between full scans |
 | `PAPER_TRACK_ALL_SIGNALS` | True | Paper-trade every alert (no position cap) |
 | `MAX_CAPITAL_PER_TRADE_PCT`, `MAX_TRADES_PER_DAY` | 5, 3 | Risk per trade / max open positions (the cap applies only if tracking-all is False) |
@@ -366,6 +374,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `market_calendar.py`, `holiday_notice.py`, `market_holidays.json` | Holiday lookup and notice |
 | `backtest.py`, `backtest_report.py` | Approximate historical check and HTML report |
 | `diagnose_angelone.py` | Prints raw Angel One responses to debug login/data |
+| `levels.py` | Support/resistance levels and room to the next level (journal/lab only) |
 | `rule_lab.py`, `rediagnose_journal.py` | Nightly learning loop (candidate rules replayed on the journal, data checks) and a helper that re-reads old journal rows with the current rules |
 | `journal.py`, `weekly_review.py`, `save_journal.py` | The per-trade journal, the weekly pattern review, and the helper that saves the journal |
 | `.github/workflows/weekly-review.yml` | Friday 17:00 IST weekly review |

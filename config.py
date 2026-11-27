@@ -343,3 +343,17 @@ MAX_LOSS_PER_LOT = 4000
 # trend alone said "bearish"). The signal is still tracked silently for the journal and the rule lab; no heads-up is sent either.
 # None = off. Applies to stocks and indexes. The lab keeps comparing blocked against allowed trades, so it can be undone at a weekly meeting.
 BLOCK_AGAINST_DAY_MOVE_PCT = 0.5
+
+# ---------------------------------------------------------------------------
+# Silent intraday INDEX regime test (added 27 Nov 2026) - NO alerts, journal and rule lab only
+# ---------------------------------------------------------------------------
+# The bot's direction comes from the DAILY trend, so it cannot catch an intraday reversal (the advisor's NIFTY 25850 PE on 27 Nov, +20% by 11:21).
+# Every REGIME_CHECK_SECONDS the bot reads NIFTY/BANKNIFTY/FINNIFTY: 15-minute EMA9 vs EMA20, price vs the day's VWAP, the day's change, and whether
+# price broke the previous day's low/high. BEARISH = EMA9 below EMA20 AND below VWAP AND down REGIME_DAY_CHANGE_PCT or more; BULLISH = the mirror.
+# Each reading is logged (journal/regime-<date>.jsonl). When an index turns BEARISH/BULLISH the bot opens a SILENT paper trade (ATM put/call, within the
+# budget and loss cap), at most REGIME_MAX_TRADES_PER_INDEX per index per day and none after NO_ALERTS_AFTER. The rule lab compares them with the
+# daily-trend index trades; nothing here sends an alert until a weekly meeting decides so.
+INDEX_REGIME_SHADOW = True
+REGIME_CHECK_SECONDS = 300
+REGIME_DAY_CHANGE_PCT = 0.3
+REGIME_MAX_TRADES_PER_INDEX = 3

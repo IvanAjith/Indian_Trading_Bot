@@ -95,7 +95,7 @@ DIMENSIONS = [
     ("Score", b_score), ("Entry time", b_time), ("Instrument", lambda r: "index" if r.get("is_index") else "stock"),
     ("Direction", lambda r: r.get("option_type", "?")), ("Volume", b_volume), ("Open interest", b_oi),
     ("Market agreement", b_market), ("Cost per lot", b_cost),
-    ("Strike type", lambda r: "cheaper (reasoned) strike" if r.get("variant") == "reasoned_strike" else "at the money"),
+    ("Strike type", lambda r: "cheaper (reasoned) strike" if r.get("variant") == "reasoned_strike" else ("index regime (silent test)" if r.get("variant") == "index_regime" else "at the money")),
 ]
 
 

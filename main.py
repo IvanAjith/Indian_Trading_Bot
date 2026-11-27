@@ -13,13 +13,16 @@ NSE or your broker, and market-hours awareness. See README.md.
 """
 
 import argparse
+import dataclasses
 import datetime as dt
+import json
+import os
 import threading
 import time
 
 import config
 from data_fetcher import get_provider
-from screener import rank_universe, watchlist_candidates, needs_option_chain
+from screener import rank_universe, watchlist_candidates, needs_option_chain, screen_symbol
 from strategy import pick_reasoned_strike, build_trade_idea, _pick_strike, max_cost_per_lot
 from paper_trader import PaperTradingAccount
 from telegram_notifier import (
@@ -455,6 +458,67 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         if config.REALERT_MAX_PER_DAY is not None and count - 1 >= config.REALERT_MAX_PER_DAY:
             return "already alerted today"
         return None
+
+    regime = {"last_check": 0.0, "opened": {}}     # opened: {(index, direction): number of silent trades today}
+
+    def _regime_check():
+        """Silent intraday INDEX regime test (see config 'Silent intraday INDEX regime test'): log the regime of NIFTY/BANKNIFTY/FINNIFTY every few
+        minutes and open a SILENT paper trade when an index turns bullish/bearish. Never sends an alert; never raises."""
+        if not getattr(config, "INDEX_REGIME_SHADOW", False) or account is None or provider is None:
+            return
+        if not hasattr(provider, "get_intraday_context"):
+            return
+        if time.time() - regime["last_check"] < config.REGIME_CHECK_SECONDS:
+            return
+        regime["last_check"] = time.time()
+        for idx in config.INDEX_UNIVERSE:
+            try:
+                snap_i = snap_by_symbol.get(idx)
+                if snap_i is None or not getattr(snap_i, "prev_close", 0):
+                    continue
+                ctx_i = provider.get_intraday_context(idx, is_index=True)
+                if not ctx_i or ctx_i.get("ema_up_15m") is None:
+                    continue
+                change = (snap_i.spot / snap_i.prev_close - 1) * 100
+                x = config.REGIME_DAY_CHANGE_PCT
+                if (not ctx_i["ema_up_15m"]) and ctx_i.get("above_vwap") is False and change <= -x:
+                    st_i = "BEARISH"
+                elif ctx_i["ema_up_15m"] and ctx_i.get("above_vwap") is True and change >= x:
+                    st_i = "BULLISH"
+                else:
+                    st_i = "NEUTRAL"
+                row = {"time": dt.datetime.now().strftime("%H:%M:%S"), "symbol": idx, "state": st_i, "spot": round(snap_i.spot, 2),
+                       "day_change_pct": round(change, 2), "ema_up_15m": ctx_i["ema_up_15m"], "above_vwap": ctx_i.get("above_vwap"),
+                       "vwap": ctx_i.get("vwap"), "day_high": ctx_i.get("day_high"), "day_low": ctx_i.get("day_low"),
+                       "prev_high": ctx_i.get("prev_high"), "prev_low": ctx_i.get("prev_low"),
+                       "below_prev_low": (snap_i.spot < ctx_i["prev_low"]) if ctx_i.get("prev_low") else None,
+                       "above_prev_high": (snap_i.spot > ctx_i["prev_high"]) if ctx_i.get("prev_high") else None}
+                os.makedirs(config.JOURNAL_DIR, exist_ok=True)
+                with open(os.path.join(config.JOURNAL_DIR, f"regime-{today.isoformat()}.jsonl"), "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+                if st_i == "NEUTRAL":
+                    continue
+                if config.NO_ALERTS_AFTER and dt.datetime.now().strftime("%H:%M") >= config.NO_ALERTS_AFTER:
+                    continue
+                if any(p.symbol == idx and p.shadow and (p.context or {}).get("variant") == "index_regime" and p.status != "CLOSED"
+                       and p.option_type == ("PE" if st_i == "BEARISH" else "CE") for p in account.shadow_positions):
+                    continue                                   # one open regime trade per index and direction at a time
+                if sum(n for (sym, _), n in regime["opened"].items() if sym == idx) >= config.REGIME_MAX_TRADES_PER_INDEX:
+                    continue
+                real = screen_symbol(snap_i)
+                fake = dataclasses.replace(real, bias=st_i, score=0.0,
+                                           trigger_reasons=[f"intraday regime {st_i.lower()}: 15-min EMA9 {'above' if ctx_i['ema_up_15m'] else 'below'} EMA20, "
+                                                            f"price {'above' if ctx_i.get('above_vwap') else 'below'} VWAP, day {change:+.2f}%"])
+                idea_r = build_trade_idea(snap_i, fake)
+                if not idea_r or _over_budget(idea_r.entry, idea_r.lot_size):
+                    continue
+                idea_r.context.update({"variant": "index_regime", "entry_clock": dt.datetime.now().strftime("%H:%M"), "intraday": ctx_i,
+                                       "regime": row, "why_shadow": "silent index regime test"})
+                if account.open_trade(idea_r, shadow=True) is not None:
+                    regime["opened"][(idx, st_i)] = regime["opened"].get((idx, st_i), 0) + 1
+                    print(f"[monitor] silent index-regime trade: {idx} {idea_r.option_type} {fmt_strike(idea_r.strike)} ({st_i.lower()}, day {change:+.2f}%)")
+            except Exception as exc:        # a problem in the silent test must never disturb the session
+                print(f"[monitor] index regime check for {idx} failed (not fatal): {exc}")
 
     intraday_cache = {}
 
@@ -904,6 +968,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             state["symbols_scanned"] = len(snapshots)
             snap_by_symbol = {s.symbol: s for s in snapshots}
             state["last_snap_by_symbol"] = snap_by_symbol
+            _regime_check()
             # Rank ALL qualifying symbols (not just the top N): suppressed / already-alerted names must
             # not use up the per-scan slots, or new symbols could never surface. The per-scan cap
             # (TOP_N_SIGNALS_PER_DAY) is applied below, after filtering.

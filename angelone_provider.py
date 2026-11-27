@@ -610,9 +610,15 @@ class AngelOneDataProvider:
             vol = sum(float(r[5] or 0) for r in today_rows)
             vwap = (sum((float(r[2]) + float(r[3]) + float(r[4])) / 3 * float(r[5] or 0) for r in today_rows) / vol) if vol > 0 else None
             last = float(closes.iloc[-1])
+            prev_dates = sorted({str(r[0])[:10] for r in rows if str(r[0])[:10] < today})
+            prev_rows = [r for r in rows if prev_dates and str(r[0])[:10] == prev_dates[-1]]
             return {"ema9_15m": round(float(e9), 2), "ema20_15m": round(float(e20), 2), "ema_up_15m": bool(e9 > e20),
                     "vwap": round(vwap, 2) if vwap else None, "above_vwap": (last >= vwap) if vwap else None,
-                    "last": round(last, 2), "candles_today": len(today_rows), "asof": now.strftime("%H:%M")}
+                    "last": round(last, 2), "candles_today": len(today_rows), "asof": now.strftime("%H:%M"),
+                    "day_high": round(max(float(r[2]) for r in today_rows), 2) if today_rows else None,
+                    "day_low": round(min(float(r[3]) for r in today_rows), 2) if today_rows else None,
+                    "prev_high": round(max(float(r[2]) for r in prev_rows), 2) if prev_rows else None,
+                    "prev_low": round(min(float(r[3]) for r in prev_rows), 2) if prev_rows else None}
         except Exception as exc:
             print(f"[angelone] intraday context for {symbol} unavailable: {exc}")
             return None
