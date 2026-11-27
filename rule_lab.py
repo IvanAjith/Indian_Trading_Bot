@@ -135,6 +135,15 @@ CANDIDATES = [
      "delta": lambda r: 0.0,
      "gate": lambda r: (not is_stock(r)) or (r.get("trend_daily") or {}).get("ema_gap_pct") is None or
                        (((r["trend_daily"]["ema_gap_pct"] if r.get("option_type") == "CE" else -r["trend_daily"]["ema_gap_pct"])) >= 1.0)},
+    {"name": "nifty_with_trade", "proposed": "2026-11-27",
+     "desc": "no stock alert unless NIFTY's move today agrees with the trade (a call needs NIFTY flat or up, a put needs it flat or down)",
+     "delta": lambda r: 0.0,
+     "gate": lambda r: (not is_stock(r)) or r.get("nifty_chg_pct") is None or
+                       ((r["nifty_chg_pct"] >= 0) if r.get("option_type") == "CE" else (r["nifty_chg_pct"] <= 0))},
+    {"name": "momentum_part_min_60", "proposed": "2026-11-27",
+     "desc": "no alert unless the momentum part of the score is at least 60 (a thin daily trend cannot be carried over the line by volume alone); rows without score parts pass",
+     "delta": lambda r: 0.0,
+     "gate": lambda r: (r.get("score_parts") or {}).get("mom") is None or r["score_parts"]["mom"] >= 60.0},
     {"name": "min_premium_10", "proposed": "2026-11-27",
      "desc": "no alert when the option premium is under Rs 10 (tiny premiums have big relative spreads and a stop worth only a few ticks)",
      "delta": lambda r: 0.0, "gate": lambda r: (r.get("entry") or 0) >= 10.0},
