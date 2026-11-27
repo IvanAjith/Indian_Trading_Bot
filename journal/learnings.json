@@ -1,0 +1,42 @@
+{
+  "generated": "2026-11-27",
+  "trades": 32,
+  "suggestions": [
+    {
+      "type": "avoid",
+      "factor": "opening",
+      "evidence": "5 trades with 'entered in the volatile first half hour' won 0% vs 37% without (27 trades)",
+      "action": "Consider waiting until about 09:50 before taking signals."
+    },
+    {
+      "type": "avoid",
+      "factor": "near_threshold",
+      "evidence": "27 trades with 'the score only just passed the threshold' won 26% vs 60% without (5 trades)",
+      "action": "Consider a higher minimum score."
+    },
+    {
+      "type": "avoid",
+      "factor": "oi_against",
+      "evidence": "7 trades with 'open interest built up AGAINST the trade's direction' won 14% vs 36% without (25 trades)",
+      "action": "Do not count OI build-up that points the other way (a call with PUT build-up, a put with CALL build-up); require OI to agree with the direction."
+    },
+    {
+      "type": "favour",
+      "factor": "oi_confirmed",
+      "evidence": "20 trades with 'open interest confirmed the direction' won 40% vs 17% without (12 trades)",
+      "action": "Consider favouring (or requiring) this: e.g. a score bonus or a filter - needs your approval."
+    },
+    {
+      "type": "favour",
+      "factor": "with_market",
+      "evidence": "11 trades with 'it agreed with the NIFTY trend' won 45% vs 24% without (21 trades)",
+      "action": "Consider favouring (or requiring) this: e.g. a score bonus or a filter - needs your approval."
+    },
+    {
+      "type": "favour",
+      "factor": "continuation",
+      "evidence": "9 trades with 'continuation profile (strong same-direction move today + agreeing OI + trend not stretched)' won 44% vs 26% without (23 trades)",
+      "action": "Consider favouring (or requiring) this: e.g. a score bonus or a filter - needs your approval."
+    }
+  ]
+}
