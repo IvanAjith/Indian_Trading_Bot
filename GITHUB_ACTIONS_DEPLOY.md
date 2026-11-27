@@ -65,8 +65,8 @@ The first scan of the day is slower (it downloads daily candles for every symbol
 ## Reliable daily start: outside timer (cron-job.org) + early backup slots
 
 GitHub's own scheduler is best-effort (on 25-26 Nov 2026 it started runs up to 9 hours late or not at all).
-`bot.yml` therefore has five early slots (08:37 - 09:12 IST), **and** a free outside timer calls GitHub at the
-right minute. The bot waits by itself until 09:20 IST before scanning, so starting early is harmless.
+`bot.yml` therefore has three backup slots (09:15, 09:20, 09:25 IST), **and** a free outside timer calls GitHub at the
+right minute. **Do not start earlier than about 09:13:** GitHub stops a hosted job 6 hours after it starts, so an earlier start is cut off before the 15:10 square-off (27 Nov 2026: started 09:00, killed at 15:00:39). The bot now protects itself (it ends early and squares off, with a warning), but a 09:15 start gives the whole session.
 
 **1. Create a GitHub token (once)**
 GitHub -> your profile picture -> Settings -> Developer settings -> Personal access tokens -> *Fine-grained tokens*
@@ -77,7 +77,7 @@ reminder to renew it). Copy the token (`github_pat_...`). Never paste it in chat
 **2. Create the timer on cron-job.org (free account)**
 Create cronjob with:
 - URL: `https://api.github.com/repos/IvanAjith/Indian_Trading_Bot/actions/workflows/bot.yml/dispatches`
-- Schedule (Advanced / custom): time zone **Asia/Kolkata**, Monday-Friday, **09:00** (and a second job at **09:10**)
+- Schedule (Advanced / custom): time zone **Asia/Kolkata**, Monday-Friday, **09:15** (crontab `15 9 * * 1-5`) and a second backup job at **09:25** (`25 9 * * 1-5`)
 - Request method: **POST**; request body: `{"ref":"main"}`
 - Headers:
   - `Authorization: Bearer <your token>`

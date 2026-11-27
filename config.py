@@ -318,3 +318,9 @@ RULES_VERSION = "v2-2026-11-26"
 SILENT_MAX_PER_DAY = 40
 # After each session the bot writes a nightly learning report (journal/lab/) and sends a short note to Telegram.
 NIGHTLY_LEARNING_TELEGRAM = True
+
+# GitHub stops a hosted job 6 hours (360 min) after it starts - on 27 Nov 2026 the bot started at 09:00 and was cut off at 15:00:39, before the
+# 15:10 square-off, so open trades were never closed and no end-of-day summary was sent. The bot now ends ITSELF JOB_LIMIT_MINUTES after it
+# starts if that is earlier than SESSION_END, squares everything off 2 minutes before, and says so in the "Bot started" message.
+# Start the bot at about 09:15 (cron-job.org timers at 09:15 and 09:25) so the whole session fits: 09:15 + 5h58m = 15:13.
+JOB_LIMIT_MINUTES = 358

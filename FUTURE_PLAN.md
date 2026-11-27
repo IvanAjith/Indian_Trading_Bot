@@ -13,7 +13,7 @@ one at a time ("build item 4.2"). Keep one change per release, so results stay c
 | Topic | Decision |
 |---|---|
 | Mode | Paper trading only. The bot never places real orders. |
-| Run | GitHub Actions, weekdays, start ~09:15 IST (backup starts 09:20/09:25/09:30), end 15:12. Repo is public. |
+| Run | GitHub Actions, weekdays, start ~09:15 IST via the outside timer (backups 09:25 and GitHub slots 09:15/09:20/09:25), end 15:12. Never start earlier than ~09:13: GitHub stops a job 6 hours after it starts (27 Nov: started 09:00, killed 15:00). The bot also clips its own session and squares off early if started earlier. Repo is public. |
 | Entry alert | Score **70 or more** (`ALERT_SCORE`). Best score first, 2 per scan, no daily limit. |
 | Heads-up | Score **65 to 69.9**, rising, once per stock per day (`WATCHLIST_MIN_SCORE`). |
 | Silent tracking | Signals 65-69.9 are paper-traded silently and journaled (`SHADOW_TRACK_LOWER_BAND`). |

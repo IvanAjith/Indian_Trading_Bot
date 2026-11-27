@@ -33,6 +33,8 @@ import weekly_review as wr
 MIN_OOS_ALERTS = 30
 # Days whose volume factor was unreliable (the 4-hour cached daily candle): usable for the in-sample story only.
 STALE_VOLUME_DATES = {"2026-11-25", "2026-11-26"}
+# Days whose journal is INCOMPLETE (trades still open when the session was cut off are missing, so the rows over-represent early stop-outs).
+INCOMPLETE_DAYS = {"2026-11-27": "session killed at 15:00 by GitHub's 6-hour job limit; trades still open then are missing"}
 REQUIRED_FIELDS = ("score", "rsi", "oi_signal", "spot_chg_pct", "entry_clock", "volume_ratio")
 
 
@@ -152,6 +154,8 @@ def row_issues(r):
             issues.append(f"missing {f}")
     if r.get("date") in STALE_VOLUME_DATES:
         issues.append("stale volume day")
+    if r.get("date") in INCOMPLETE_DAYS:
+        issues.append("incomplete day (session cut short)")
     if not r.get("rules_version"):
         issues.append("rows from before rule versioning (score converted)")
     if (r.get("entry") or 0) <= 0:
@@ -183,7 +187,7 @@ def data_checks(rows):
     for r in rows:
         iss = row_issues(r)
         counts.update(iss)
-        if not [i for i in iss if not i.startswith(("stale volume", "rows from before", "open under"))]:
+        if not [i for i in iss if not i.startswith(("stale volume", "rows from before", "open under", "incomplete day"))]:
             clean += 1
     keys = collections.Counter((r.get("date"), r.get("symbol"), r.get("strike"), r.get("option_type"), r.get("entry_clock"),
                                 bool(r.get("alerted"))) for r in rows)
@@ -195,7 +199,7 @@ def data_checks(rows):
 
 def usable_for_evidence(r):
     """A row may count as out-of-sample evidence only if its data is clean and its volume factor was live."""
-    bad = ("missing", "bad entry", "score does not match", "score parts unreadable", "stale volume", "win flag")
+    bad = ("missing", "bad entry", "score does not match", "score parts unreadable", "stale volume", "win flag", "incomplete day")
     return not any(i.startswith(bad) for i in row_issues(r))
 
 
@@ -322,7 +326,7 @@ def telegram_note(rows, day):
     today = [r for r in rows if r.get("date") == day]
     live = _summ(today, _alert_set(today))
     counts, _, clean = data_checks(rows)
-    issues = sum(n for k, n in counts.items() if not k.startswith(("stale volume", "rows from before", "open under")))
+    issues = sum(n for k, n in counts.items() if not k.startswith(("stale volume", "rows from before", "open under", "incomplete day")))
     lines = [f"\U0001F9EA <b>Nightly learning {day}</b>",
              f"Live rules {config.RULES_VERSION}: {live['n']} alerts, {live['wins']} wins, {live['t1']} reached T1, {money(live['pnl'])} (replay).",
              f"Silent/other trades: {len(today) - live['n']}; reached T1 overall: {sum(1 for r in today if r.get('t1_reached'))}."]
