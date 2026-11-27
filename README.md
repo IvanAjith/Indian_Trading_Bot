@@ -36,7 +36,7 @@ and the bot sends **❌ Run FAILED**.
 
 - **NIFTY, BANKNIFTY, FINNIFTY**, plus
 - each morning it reads Angel One's live F&O contract list, ranks stocks by how much money is open in
-  their near-the-money options (open-interest value) and scans the **top 80**, plus your curated list in
+  their near-the-money options (open-interest value) and scans the **top 120** (effectively every F&O stock), plus your curated list in
   `config.py` (if those still have live options). About 85-90 symbols in total.
 - Per symbol: the nearest expiry, at-the-money strike ±3 (7 CE and 7 PE contracts).
 - Prices are fetched ~40 per API call. Since 26 Nov a scan is **two-stage** (option chains only where they can matter), aiming at about 30 seconds per scan
@@ -56,7 +56,8 @@ Each symbol gets a 0-100 **score**:
 
 - Score **70 or more** (`ALERT_SCORE`) → a full **entry alert** (call for bullish, put for bearish). **Every** signal
   at or above 70 alerts - there is no daily limit - with these rules:
-  - **Budget:** signals whose contract costs more than **₹35,000 for one lot** (`MAX_COST_PER_LOT`) are skipped, so
+  - **Capital protection (since 27 Nov):** a signal is allowed only if the **worst-case loss on one lot at the stoploss, including the assumed slippage, is at most ₹4,000** (`MAX_LOSS_PER_LOT`) - with the 18% stop and 1% slippage each side that means one lot costing at most about **₹20,000**. Over the cap: a cheaper strike chosen by reasons, or skipped. The alert shows the planned loss and the worst case with slippage. (The older ₹35,000 limit, `MAX_COST_PER_LOT`, remains as a second ceiling.)
+  - **Budget (older rule):** signals whose contract costs more than **₹35,000 for one lot** (`MAX_COST_PER_LOT`) are skipped, so
     every alert is something a ₹1 lakh account can take (about 3 trades at once). Skipped ones are counted in the
     daily summary. Index options like BANKNIFTY/FINNIFTY usually fall out; NIFTY stays.
   - **At most 2 alerts per scan** (`MAX_ALERTS_PER_SCAN`), best score first, to avoid an opening burst. Nothing is
@@ -327,6 +328,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `ALERT_SCORE` | 70 | Entry alerts for every signal at or above this score |
 | `MIN_SIGNAL_SCORE` / `SHADOW_TRACK_LOWER_BAND` | 60 / True | Floor for any signal; signals between 60 and the alert score are tracked silently for learning |
 | `WATCHLIST_MIN_SCORE` | 65 | Heads-ups for scores from here up to the alert score |
+| `MAX_LOSS_PER_LOT` | 4000 | Worst-case loss on one lot at the stoploss (incl. slippage); caps one lot's cost at about ₹20,000 |
 | `MAX_COST_PER_LOT`, `MAX_ALERTS_PER_SCAN`, `MAX_ALERTS_PER_DAY` | 35,000, 2, None | Budget filter (cost of 1 lot), alerts per scan, optional alerts-per-day limit (None = no limit) |
 | `STOPLOSS_PCT`, `TARGET_PCT_T1/T2/T3` | 18, 15/30/50 | Stop and targets on the option price |
 | `LOTS_PER_TRADE_INDEX`, `TARGETS_INDEX`, `LOTS_PER_TRADE_STOCK`, `TARGETS_STOCK` | 3, 3, 2, 2 | Lots bought and number of targets for index trades and for stock trades (1 lot sold at each target) |
@@ -343,7 +345,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `MAX_CAPITAL_PER_TRADE_PCT`, `MAX_TRADES_PER_DAY` | 5, 3 | Risk per trade / max open positions (the cap applies only if tracking-all is False) |
 | `PAPER_SLIPPAGE_PCT`, `PAPER_STARTING_CAPITAL` | 1.0, 10,00,000 | Paper-trading realism |
 | `FORCE_EXIT_TIME` | 15:10 | Intraday square-off time (nothing is carried overnight) |
-| `AUTO_UNIVERSE`, `AUTO_UNIVERSE_MAX_STOCKS`, `STOCK_UNIVERSE` | True, 80 | What is scanned (more = slower scans) |
+| `AUTO_UNIVERSE`, `AUTO_UNIVERSE_MAX_STOCKS`, `STOCK_UNIVERSE` | True, 120 | What is scanned (more = slower scans) |
 | `FETCH_IV` | False | Extra IV call per symbol (a near-constant score input) |
 
 ## Files
