@@ -459,7 +459,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             return "already alerted today"
         return None
 
-    regime = {"last_check": 0.0, "opened": {}}     # opened: {(index, direction): number of silent trades today}
+    regime = {"last_check": 0.0, "opened": {}, "readings": 0, "failed_checks": 0, "warned": False}   # opened: {(index, direction): silent trades today}
 
     def _regime_check():
         """Silent intraday INDEX regime test (see config 'Silent intraday INDEX regime test'): log the regime of NIFTY/BANKNIFTY/FINNIFTY every few
@@ -471,6 +471,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         if time.time() - regime["last_check"] < config.REGIME_CHECK_SECONDS:
             return
         regime["last_check"] = time.time()
+        got_any = False
         for idx in config.INDEX_UNIVERSE:
             try:
                 snap_i = snap_by_symbol.get(idx)
@@ -479,6 +480,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 ctx_i = provider.get_intraday_context(idx, is_index=True)
                 if not ctx_i or ctx_i.get("ema_up_15m") is None:
                     continue
+                got_any = True
+                regime["readings"] += 1
                 change = (snap_i.spot / snap_i.prev_close - 1) * 100
                 x = config.REGIME_DAY_CHANGE_PCT
                 if (not ctx_i["ema_up_15m"]) and ctx_i.get("above_vwap") is False and change <= -x:
@@ -519,6 +522,14 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                     print(f"[monitor] silent index-regime trade: {idx} {idea_r.option_type} {fmt_strike(idea_r.strike)} ({st_i.lower()}, day {change:+.2f}%)")
             except Exception as exc:        # a problem in the silent test must never disturb the session
                 print(f"[monitor] index regime check for {idx} failed (not fatal): {exc}")
+        if got_any:
+            regime["failed_checks"] = 0
+        else:
+            regime["failed_checks"] += 1
+            if regime["failed_checks"] >= 3 and not regime["warned"] and regime["readings"] == 0 and config.TELEGRAM_ENABLED:
+                regime["warned"] = True      # one warning, so a broken 15-minute feed is seen on the first morning, not discovered later
+                send_telegram_message("⚠️ The 15-minute data for the index regime test could not be read (3 checks in a row). "
+                                      "Alerts are NOT affected; only the silent index test and the 15-minute trend line are missing today.")
 
     intraday_cache = {}
 
@@ -836,6 +847,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         stats = getattr(provider, "stats", None)
         if stats:
             line += f" API calls {stats['calls']}, rate-limit retries {stats['rate_limit_retries']}."
+            line += (f"\n15-minute data: {stats.get('intraday_ok', 0)} ok / {stats.get('intraday_fail', 0)} failed; "
+                     f"index regime readings: {regime['readings']}.")
         return line
 
     def _end_session():

@@ -156,7 +156,6 @@ def pick_reasoned_strike(snapshot: UnderlyingSnapshot, option_type: str, exclude
     atm_i = strikes.index(atm.strike)
     atr = _avg_daily_range(snapshot)
     atm_delta = _estimate_delta(side, atm_i, option_type)
-    other_type = "PE" if option_type == "CE" else "CE"
     exclude = {float(x) for x in exclude_strikes}
 
     # opposing open-interest wall: for a CE the biggest CE-OI strike above the spot (resistance); for a PE the biggest

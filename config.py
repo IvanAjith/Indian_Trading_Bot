@@ -315,7 +315,7 @@ CONTINUATION_MIN_MOVE_PCT = 2.0
 # Change it ONLY when the live scoring rules change (after a weekly-meeting decision).
 RULES_VERSION = "v2-2026-11-26"
 # Cap on silent paper trades per day (the lower 60-64.9 band adds trades; this keeps quote traffic bounded).
-SILENT_MAX_PER_DAY = 40
+SILENT_MAX_PER_DAY = 80
 # After each session the bot writes a nightly learning report (journal/lab/) and sends a short note to Telegram.
 NIGHTLY_LEARNING_TELEGRAM = True
 

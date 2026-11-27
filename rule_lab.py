@@ -22,7 +22,6 @@ fills with 1% slippage.
 
 import argparse
 import collections
-import datetime as dt
 import os
 import sys
 

@@ -17,12 +17,16 @@ paper positions and sending a summary.
    time you type in - use a time a few minutes ahead, e.g. now + 5 min.)
 4. **Stop any old copy of the bot** (old Mac/VPS) - two copies fight over Telegram.
 
-## How you know it is healthy
-- 09:15-09:30 IST: Telegram message "Bot started". **No message = something is wrong**
-  (check the Actions tab; GitHub also emails you when a run fails).
-- A failed run sends "Trading bot run FAILED". A dead data feed sends "Data feed is down".
-- End of session: "Session ended" + the day's summary.
-- Each run's `monitor.log` and `paper_trades.csv` are in the run page under **Artifacts** (kept 90 days).
+## How you know it is healthy (the daily routine)
+- **About 09:15 IST:** Telegram "🟢 Bot started" (from the cron-job.org timer). **No message by 09:25 = start it by hand**
+  (Actions -> NSE options signal bot -> Run workflow) and look at the Actions tab.
+- **About 09:22-09:30:** "✅ First scan done in X min" (a few minutes at most).
+- **During the day:** heads-ups, entry alerts, target/stoploss messages. "⚠️ Data feed is down" means no market data; "⚠️ The 15-minute data ... could not be read" means only the silent index test and the
+  15-minute trend line are missing (alerts are not affected).
+- **~14:55:** end-of-day check-in for any open trade. **15:10:** every open trade is squared off. **15:12:** "🔚 Session ended" with the day's summary and a "Bot health" block (scans, scan times, rate-limit retries, 15-minute data ok/failed, index regime readings).
+- **A few seconds later:** "🧪 Nightly learning" note. **Fridays about 17:00:** "📚 Weekly review" (if it has not arrived by 17:30, run **Weekly trade review** by hand from the Actions tab; GitHub's scheduler can skip it).
+- A failed or **cancelled** run sends "Trading bot run FAILED or was CANCELLED" (a job is cancelled if it runs past GitHub's 6-hour limit).
+- Each run's `monitor.log` and `paper_trades.csv` are in the run page under **Artifacts** (kept 90 days); the journal, the nightly lab reports, the scanned symbols (`universe-<date>.txt`) and the index regime log are on the `journal-data` branch.
 
 ## Free-minute budget (private repo = 2,000 min/month)
 The default session is now the **full day**, 09:15-15:12 IST (~6 h/day; GitHub's 6-hour job limit is why the session cannot run later) - only suitable for a
@@ -35,17 +39,17 @@ The default session is now the **full day**, 09:15-15:12 IST (~6 h/day; GitHub's
 ## Limits to know
 - Not tick-live: scan cadence is roughly 1-2 minutes. Signals are for options
   you place yourself by hand; paper fills assume `PAPER_SLIPPAGE_PCT` slippage per side.
-- GitHub's scheduler can start a run late or skip it, so the workflow has four start times (09:15, 09:20, 09:25, 09:30 IST). Only one session runs. If nothing has started by ~09:45, press **Run workflow** yourself.
+- GitHub's scheduler can start a run late or skip it, so the workflow has three backup start times (09:15, 09:20, 09:25 IST) next to the cron-job.org timer. Only one session runs. If nothing has started by ~09:25, press **Run workflow** yourself.
 - Telegram commands (`help`, `status`, `trades`, `pnl`, `summary`, `close`) work only while a session is running.
 - Angel One may restrict API access by IP; GitHub runners have changing IPs.
   If login fails you will get a "Bot could not start" message.
 
 ## What gets scanned
 At the start of each day the bot reads Angel One's live F&O contract list, ranks the
-stocks by open-interest value (money parked in near-the-money options) and scans the top 80,
+stocks by open-interest value (money parked in near-the-money options) and scans the top 120 (effectively every F&O stock),
 plus your curated list in `config.py` (if they still have options), plus NIFTY/BANKNIFTY/FINNIFTY.
 Prices come ~40 per API call. Settings in `config.py`: `AUTO_UNIVERSE`, `AUTO_UNIVERSE_MAX_STOCKS`, `FETCH_IV`.
-The first scan of the day is slower (it downloads daily candles for every symbol once, 3 at a time). The bot says how long it took ("✅ First scan done in X min") and the 15:10 summary reports first/average scan time, API calls and rate-limit retries. Commands you send meanwhile are answered right away.
+The first scan of the day is slower (it downloads daily candles for every symbol once, 2 at a time, mostly before the open). The bot says how long it took ("✅ First scan done in X min") and the 15:10 summary reports first/average scan time, API calls and rate-limit retries. Commands you send meanwhile are answered right away.
 
 ## Daily summary and holidays
 - **Summary:** sent when the session ends (15:12 IST with the default full day, or `SESSION_END`; every open paper trade is squared off at 15:10),
@@ -90,3 +94,9 @@ GitHub answers **204 No Content** when it worked. Use the "Test run" button once
 really starts a session - that is fine).
 
 Extra starts are harmless: only one session runs at a time and a queued extra exits once the session is over.
+
+### Optional extra timers (same token, same headers and body `{"ref":"main"}`; only the URL and the time change)
+GitHub's scheduler skipped the Friday weekly review on 27 Nov (no run at all), and delayed the 8 PM holiday notice by almost 9 hours. If you want them to be as reliable as the daily start, add two more cron-job.org jobs (time zone Asia/Kolkata):
+- **Weekly review:** URL `https://api.github.com/repos/IvanAjith/Indian_Trading_Bot/actions/workflows/weekly-review.yml/dispatches`, Fridays **17:00** (`0 17 * * 5`).
+- **Holiday notice:** URL `https://api.github.com/repos/IvanAjith/Indian_Trading_Bot/actions/workflows/holiday-notice.yml/dispatches`, every day **20:00** (`0 20 * * *`). Only matters before an NSE holiday (the next one in the list is 25 Dec); the bot itself also detects a closed market at 09:20 and stands down.
+

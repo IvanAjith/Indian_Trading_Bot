@@ -24,7 +24,7 @@ one at a time ("build item 4.2"). Keep one change per release, so results stay c
 | Score | 40% momentum, 20% live volume, 30% OI, 10% IV, plus (from 26 Nov evening): OI counts only when it agrees with the trade; stretched RSI (stock call 70+/put 30-) -5; continuation (2%+ same-direction move + agreeing OI + not stretched) +6. Built from ONE day of data - re-check at the 11 and 18 Dec checkpoints (weekly review factors: oi_against, stretched, continuation). |
 | Index regime (silent) | From 28 Nov the bot logs NIFTY/BANKNIFTY/FINNIFTY's intraday regime every 5 minutes (15-min EMA9/EMA20, VWAP, day change, previous-day high/low) and opens SILENT paper trades when an index turns bullish/bearish (max 3 per index per day). No alerts. The lab compares them with the daily-trend index trades; a weekly meeting decides whether it becomes an index signal. Trades also log support/resistance levels and room to the next level (`levels.py`). |
 | Intraday trend | The alert's 'bullish/bearish trend' is the DAILY EMA9/EMA20 of the stock (wording now says 'daily'). From 27 Nov each alert shows the stock's 15-minute trend (EMA9 vs EMA20, price vs VWAP) as information and the journal records it (`intraday`); lab candidate `intraday_15m_must_agree` tests it as a gate. No score change. |
-| Learning loop | Live rules are FIXED for the week (`RULES_VERSION`). Every night `rule_lab.py` replays candidate rules on the journal (out-of-sample days only count; in-sample is shown but not trusted), shows the trade-off, runs data checks and sends a short Telegram note. The weekly meeting approves AT MOST ONE change, then `RULES_VERSION` is bumped. Silent tracking floor lowered to 60 (heads-ups still 65+; max 40 silent trades/day). Candidates: rsi_cap_65, stretched_penalty_10, continuation_bonus_10, oi_must_agree, move_1pct_with_trade, window_0950_1430, volume_credit_only_if_move_agrees, daily_price_vs_ema9, daily_ema_gap_1pct, min_premium_10, nifty_with_trade, momentum_part_min_60, continuation_late_day, room_to_level_1pct, intraday_15m_must_agree. (26 Nov 2026) |
+| Learning loop | Live rules are FIXED for the week (`RULES_VERSION`). Every night `rule_lab.py` replays candidate rules on the journal (out-of-sample days only count; in-sample is shown but not trusted), shows the trade-off, runs data checks and sends a short Telegram note. The weekly meeting approves AT MOST ONE change, then `RULES_VERSION` is bumped. Silent tracking floor lowered to 60 (heads-ups still 65+; max 80 silent trades/day). Candidates: rsi_cap_65, stretched_penalty_10, continuation_bonus_10, oi_must_agree, move_1pct_with_trade, window_0950_1430, volume_credit_only_if_move_agrees, daily_price_vs_ema9, daily_ema_gap_1pct, min_premium_10, nifty_with_trade, momentum_part_min_60, continuation_late_day, room_to_level_1pct, intraday_15m_must_agree. (26 Nov 2026) |
 | Universe | Top 120 F&O stocks by option OI value (effectively all) plus the curated list; the scanned names are saved daily as `journal/universe-<date>.txt`. History download eased (2 workers, 0.6 s gap) after 34% of calls hit the rate limit. |
 | Scan speed | Two-stage scan (option chains only for symbols that can still reach the heads-up band; first scan of the day and every 20th are full), daily history pre-loaded before the open, history cached for the whole session. Target: a scan in ~30 s instead of ~90 s, so heads-ups/alerts arrive closer to the moment a score crosses its threshold. Silent tracking stops at 14:55. (26 Nov 2026) |
 | Reasoned strikes | ATM is always tried first. If ATM costs over the budget, the bot looks along the chain (at most 2 strikes from ATM, delta at least 60% of ATM's, never just to fit the budget) and picks a strike by reasons (cost, delta, reachable move, liquidity, OI wall; closest to the money that passes) and **sends a real alert** at it (`CHEAPER_STRIKE_ALERTS` ON from 26 Nov 2026 evening, with a 'not tested yet' note); if nothing passes it is skipped and tracked silently. Tagged in the journal; the weekly review compares 'Strike type'. Open question for the checkpoints: rank by measured reward per rupee instead of 'closest to ATM'. |
@@ -85,7 +85,7 @@ Where the data lives: `journal-data` branch → `journal/YYYY-MM-DD.md` (read), 
 - **Actions:** add the setting in `config.py`; apply it in `main.py` where signals are filtered (next to the budget check); mark skipped signals as silent so they keep being measured; re-run the weekly review to confirm.
 - **Rule:** the bot never edits its own rules; a person approves each change.
 
-### 4.2 Cheaper strikes (move along the option chain) - BUILT 26 Nov (silent test); alerts OFF until the journal supports it
+### 4.2 Cheaper strikes (move along the option chain) - BUILT 26 Nov; real alerts ON since 27 Nov (max 2 strikes from ATM, delta >= 60% of ATM's, skipped if nothing passes)
 - **What:** pick a strike 1-2 steps out of the money (higher strike for calls, lower for puts) to cut premium and capital; helps BANKNIFTY/FINNIFTY pass the ₹35,000 filter.
 - **Trade-off:** needs a bigger index move for the same % target; cheap options die worthless more often; spreads are wider.
 - **Actions:** (1) background comparison first - for each signal also paper-track the ATM, +1 and +2 strike contracts silently and journal them (`strategy._pick_strike`, silent trades); (2) review which wins; (3) then set `STRIKE_OFFSET` (already in `config.py`, 0 = at the money). The chain fetched is ATM ±3 strikes, so offsets up to 3 work without new data calls.
@@ -98,7 +98,7 @@ Where the data lives: `journal-data` branch → `journal/YYYY-MM-DD.md` (read), 
 - **Built:** `NO_ALERTS_AFTER = "14:45"` in `config.py`; the alert loop routes later signals to silent tracking and heads-ups stop.
 - **Revisit:** the weekly review's Entry-time table (and the silent trades after 14:45) show whether 14:45 should move earlier/later.
 
-### 4.5 NIFTY-trend filter - S/M - after review item 3
+### 4.5 NIFTY-trend filter - S/M - partly replaced by the 'no alert against the day's move' rule (27 Nov) and the lab candidate `nifty_with_trade`
 - **What:** skip (or silence) stock signals that oppose NIFTY's move on the day; the journal already records `nifty_chg_pct`.
 - **Actions:** add `REQUIRE_NIFTY_AGREEMENT` and apply it in the alert loop; same threshold as `journal.AGAINST_MARKET_PCT`.
 
@@ -130,6 +130,25 @@ Where the data lives: `journal-data` branch → `journal/YYYY-MM-DD.md` (read), 
 - Only after weeks of convincing paper results. SEBI/NSE algo rules: registered static IP, limit orders only, order-rate limits. GitHub's changing runner IPs would not work - needs a fixed-IP server.
 
 ---
+
+### 4.13 Plan geometry from real paths - M - **decide at the 4 Dec / 11 Dec meetings**
+- **Why:** 27 Nov data: only 16% of trades reached +15% (Target 1) while 34% fell to the -18% stop; the plan needs roughly a 55% chance of reaching Target 1 to break even.
+- **Built:** every trade's premium path is stored about once a minute in the journal (`path`). **Next:** replay other targets/stops (e.g. +10% / -12%, trailing) on the real paths in the rule lab, then choose from data.
+
+### 4.14 Intraday index regime - M - **silent test running from 28 Nov**
+- The bot's direction is the DAILY trend, so it cannot catch an intraday reversal (the advisor's NIFTY 25850 PE on 27 Nov). From 28 Nov NIFTY/BANKNIFTY/FINNIFTY are read every 5 minutes (15-minute EMA9/EMA20, VWAP or day average, day change, previous-day high/low), logged in `journal/regime-<date>.jsonl`, and SILENT paper trades are opened when an index turns bullish/bearish. The lab compares them with the daily-trend index trades. **Decide at a weekly meeting** whether it becomes an index signal.
+
+### 4.15 Support/resistance room to run - S/M - **candidate in the lab**
+- Every trade logs the 20-day high/low, previous-day high/low, pivots, round numbers and the room (%) to the next level in its direction (`trend_daily.levels`); lab candidate `room_to_level_1pct`.
+
+### 4.16 Time-of-day volume ratio - S - **tested, keep OFF**
+- `VOLUME_TIME_ADJUST` would have turned five early-morning losers on 27 Nov into alerts (the low early-morning volume part currently acts as a brake). Revisit only with more clean days.
+
+### 4.17 Advisor/external calls ledger - S
+- Keep a list of calls from outside sources (time, entry, targets, outcome) and replay each against what the bot saw at that time; two winners are not a sample, so collect winners AND losers. First entries: `journal/notes/2026-11-27-external-calls.md`.
+
+### 4.18 Money-in-use cap - M (see 4.6)
+- Peak capital in use was 132,756 to 216,227 against the 1 lakh account on 26-27 Nov; the per-lot loss cap (Rs 4,000) helps but does not limit the total.
 
 ## 5. Maintenance calendar
 

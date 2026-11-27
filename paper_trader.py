@@ -17,7 +17,6 @@ import os
 import datetime as dt
 import time
 from dataclasses import dataclass, field, asdict
-from typing import Optional
 
 from strategy import TradeIdea, position_size, plan_for
 import config
