@@ -91,6 +91,7 @@ Each symbol gets a 0-100 **score**:
   can fall past the stop (plus the assumed 1% sell slippage).
 - The paper account is ₹10 lakh; trades whose planned size risks more than the 5% max-loss rule on that capital are
   flagged ⚠️oversize (information only).
+- **No alert against the day's move (since 27 Nov, `BLOCK_AGAINST_DAY_MOVE_PCT = 0.5`).** If the stock or index is moving against the trade today - a call while it is more than 0.5% below yesterday's close, a put while it is more than 0.5% above - there is no alert and no heads-up; the signal is tracked silently for the journal and the rule lab. (APLAPOLLO put, 27 Nov: premium -30% on the day because the stock was rallying; the daily trend alone said bearish.) It can be undone at a weekly meeting if the lab shows it hurts.
 - **One open call per stock/index at a time; repeats only under strict rules.** The first alert of the day on a
   stock/index is always allowed. After that, a repeat alert on the same name needs the earlier call to be **closed** (never while
   it is open) and:
@@ -328,6 +329,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `ALERT_SCORE` | 70 | Entry alerts for every signal at or above this score |
 | `MIN_SIGNAL_SCORE` / `SHADOW_TRACK_LOWER_BAND` | 60 / True | Floor for any signal; signals between 60 and the alert score are tracked silently for learning |
 | `WATCHLIST_MIN_SCORE` | 65 | Heads-ups for scores from here up to the alert score |
+| `BLOCK_AGAINST_DAY_MOVE_PCT` | 0.5 | No alert or heads-up while the stock/index moves against the trade today by more than this % (None = off) |
 | `MAX_LOSS_PER_LOT` | 4000 | Worst-case loss on one lot at the stoploss (incl. slippage); caps one lot's cost at about ₹20,000 |
 | `MAX_COST_PER_LOT`, `MAX_ALERTS_PER_SCAN`, `MAX_ALERTS_PER_DAY` | 35,000, 2, None | Budget filter (cost of 1 lot), alerts per scan, optional alerts-per-day limit (None = no limit) |
 | `STOPLOSS_PCT`, `TARGET_PCT_T1/T2/T3` | 18, 15/30/50 | Stop and targets on the option price |

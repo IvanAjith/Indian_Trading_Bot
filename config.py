@@ -334,3 +334,12 @@ JOB_LIMIT_MINUTES = 358
 # (the Rs 35,000 limit above would allow Rs 7,000 of loss). Signals over the cap get the same treatment as over-budget ones: a cheaper strike
 # chosen by reasons if one passes the checks, otherwise skipped (counted in the summary). None = no loss cap.
 MAX_LOSS_PER_LOT = 4000
+
+# ---------------------------------------------------------------------------
+# No alert against the day's move (added 27 Nov 2026, Ajith's one rule change for the week)
+# ---------------------------------------------------------------------------
+# A trade that goes against what the stock/index is doing TODAY is not alerted: a call when it is down, a put when it is up, by more than this
+# many percent versus yesterday's close (APLAPOLLO put at 12:13 on 27 Nov, premium -30% on the day because the stock was rallying; the daily
+# trend alone said "bearish"). The signal is still tracked silently for the journal and the rule lab; no heads-up is sent either.
+# None = off. Applies to stocks and indexes. The lab keeps comparing blocked against allowed trades, so it can be undone at a weekly meeting.
+BLOCK_AGAINST_DAY_MOVE_PCT = 0.5

@@ -472,6 +472,20 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         intraday_cache[symbol] = (time.time(), ctx_i)
         return ctx_i
 
+    def _against_day_move(r) -> bool:
+        """True if the stock/index is moving AGAINST this trade today by more than BLOCK_AGAINST_DAY_MOVE_PCT (a call while it is
+        down, a put while it is up), measured against yesterday's close."""
+        limit = getattr(config, "BLOCK_AGAINST_DAY_MOVE_PCT", None)
+        if not limit:
+            return False
+        snap_d = snap_by_symbol.get(r.symbol)
+        if snap_d is None or not getattr(snap_d, "prev_close", 0):
+            return False
+        move = (snap_d.spot / snap_d.prev_close - 1) * 100
+        if r.bias == "BEARISH":
+            move = -move
+        return move <= -limit
+
     def _over_budget(entry: float, lot_size: int) -> bool:
         cap = max_cost_per_lot()
         return bool(cap) and entry * lot_size > cap
@@ -505,7 +519,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             state["shadow_symbols"].add(r.symbol)
             state["silent_count"] += 1
             print(f"[monitor] silent tracking: {r.symbol} {idea_s.option_type} (score {r.score:.1f}; "
-                  f"{'after the ' + config.NO_ALERTS_AFTER + ' cutoff' if r.score >= config.ALERT_SCORE else 'below ' + format(config.ALERT_SCORE, '.0f')})")
+                  f"{'no alert sent (after the cutoff, or against the day' + chr(39) + 's move)' if r.score >= config.ALERT_SCORE else 'below ' + format(config.ALERT_SCORE, '.0f')})")
 
     def _shadow_cheaper(r):
         """An over-budget signal: paper-trade it SILENTLY at the reasoned (cheaper) strike so the journal shows whether
@@ -920,6 +934,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 score_history[direction_key] = r.score
                 if _alert_block_reason(r.symbol, watch=True):
                     continue  # this stock/index already alerted today - no heads-up
+                if _against_day_move(r):
+                    continue  # moving against this trade today - no heads-up either
                 if previous_score is None or r.score <= previous_score:
                     continue  # flat, weakening, or no baseline yet - not worth alerting
                 if state["daily_cap_hit"] or (config.NO_ALERTS_AFTER
@@ -971,6 +987,14 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 if r.score < config.ALERT_SCORE or after_cutoff:
                     _track_silently(r)            # below the alert score, or too late in the day: no alert,
                     continue                      # paper-traded quietly for the journal only
+                if _against_day_move(r):
+                    tag = (r.symbol, "against the day's move", today.isoformat())
+                    if tag not in state["suppressed_logged"]:
+                        state["suppressed_logged"].add(tag)
+                        print(f"[monitor] {now:%H:%M} - no {r.symbol} alert: it is moving against this {'call' if r.bias == 'BULLISH' else 'put'} today "
+                              f"(by more than {config.BLOCK_AGAINST_DAY_MOVE_PCT:g}%) - tracked silently.")
+                    _track_silently(r)
+                    continue
                 if len(new_ideas) >= config.MAX_ALERTS_PER_SCAN:
                     continue                      # not lost: it alerts in a later scan if it still qualifies
                 if config.MAX_ALERTS_PER_DAY and state["alerts_sent_today"] + len(new_ideas) >= config.MAX_ALERTS_PER_DAY:

@@ -118,9 +118,6 @@ CANDIDATES = [
     {"name": "move_1pct_with_trade", "proposed": "2026-11-26",
      "desc": "no stock alert unless the stock is already 1%+ in the trade's direction today",
      "delta": lambda r: 0.0, "gate": lambda r: (not is_stock(r)) or moved_pct(r) >= 1.0},
-    {"name": "day_move_not_against", "proposed": "2026-11-27",
-     "desc": "no stock alert when the stock is already moving AGAINST the trade today by more than 0.5% (a put on a stock that is up, a call on a stock that is down)",
-     "delta": lambda r: 0.0, "gate": lambda r: (not is_stock(r)) or moved_pct(r) >= -0.5},
     {"name": "volume_credit_only_if_move_agrees", "proposed": "2026-11-27",
      "desc": "volume only earns its points when today's move agrees with the trade (high volume on a rally is no support for a put)",
      "delta": lambda r: (-screener.W_VOL * (_vol_points(r) - 40.0)) if (_vol_points(r) > 40.0 and moved_pct(r) < 0) else 0.0,
@@ -235,6 +232,8 @@ def _alert_set(rows, cand=None):
         score = live_score(r) + (cand["delta"](r) if cand else 0.0)
         if score < config.ALERT_SCORE or (cand and not cand["gate"](r)):
             continue
+        if moved_pct(r) <= -(getattr(config, "BLOCK_AGAINST_DAY_MOVE_PCT", None) or 1e9):
+            continue          # the live rule: no alert while the stock/index moves against the trade today
         key = (r.get("date"), r.get("symbol"))
         if key not in picked or (r.get("entry_clock") or "") < (rows[picked[key]].get("entry_clock") or ""):
             picked[key] = i
