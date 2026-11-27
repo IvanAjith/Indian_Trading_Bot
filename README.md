@@ -17,7 +17,7 @@ rules really work before risking money.
 | Time (IST) | What the bot does |
 |---|---|
 | **20:00 (evening before)** | `Market holiday notice` job messages you only if tomorrow is a weekday NSE holiday |
-| **~09:00** | An outside timer (cron-job.org) starts the bot; GitHub's own early slots (08:37 - 09:12) are backups. The session logs in to Angel One and sends **🟢 Bot started** |
+| **~09:15** | An outside timer (cron-job.org, 09:15 and a 09:25 backup) starts the bot; GitHub's own slots (09:15, 09:20, 09:25) are backups. The session logs in to Angel One, sends **🟢 Bot started** and pre-loads the daily history. (Not earlier: GitHub stops a job 6 hours after it starts, so a 09:00 start would be cut off at 15:00, before the square-off.) |
 | **until 09:20** | Waits and **pre-loads the daily history** for every symbol, then confirms via live data that NSE actually traded today. If not (holiday) it sends **📅 Market closed today** and stops |
 | **09:20 - 14:45** | Scans continuously. Sends heads-ups, buy signals, target / stoploss alerts; paper-trades each signal |
 | **14:45 - 15:10** | **No new alerts or heads-ups** (too little time before the square-off); later signals are tracked silently for the journal. Open trades keep being managed. |
@@ -136,7 +136,7 @@ Each symbol gets a 0-100 **score**:
   your alerts one-to-one. No cap on open positions.
 - **Lot size** comes from Angel One's contract list (e.g. NIFTY 65, BANKNIFTY 30). If you set
   `LOTS_PER_TRADE_INDEX` / `LOTS_PER_TRADE_STOCK` to `None`, the size follows the 5% max-loss rule instead (and a 1-lot trade exits fully at T2).
-- Everything is squared off at **15:10** and the session ends at **15:12**. (GitHub stops a job after 6 hours, so a session started at 09:00 or later can run to 15:12.) In your real account, close any trade still open by hand.
+- Everything is squared off at **15:10** and the session ends at **15:12**. (GitHub stops a job 6 hours after it starts: a session started at about 09:15 or later reaches 15:12. If it was started earlier, the bot ends itself early and squares off, with a warning - `JOB_LIMIT_MINUTES`.) In your real account, close any trade still open by hand.
 
 ---
 
@@ -350,7 +350,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 
 | File | Purpose |
 |---|---|
-| `.github/workflows/bot.yml` | The daily session (weekdays; started ~09:00 IST by the outside timer, early GitHub slots 08:37-09:12 as backup) |
+| `.github/workflows/bot.yml` | The daily session (weekdays; started ~09:15 IST by the outside timer; GitHub slots 09:15/09:20/09:25 as backup) |
 | `.github/workflows/holiday-notice.yml` | 20:00 IST "market closed tomorrow" notice |
 | `main.py` | Orchestrator: scan loop, alerts, Telegram commands, session start/end |
 | `angelone_provider.py` | Angel One data feed (batched quotes, lot sizes, auto universe, market-open check) |

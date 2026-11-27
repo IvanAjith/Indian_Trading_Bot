@@ -144,6 +144,25 @@ def find_leg(snap, pos):
     return next((q for q in same if q.expiry == pos.expiry), None) or (same[0] if same else None)
 
 
+def job_limit_end(session_end, started_at, limit_minutes=None):
+    """GitHub stops a hosted job 6 hours after it starts. If the session would not fit (started_at + limit < session_end),
+    return the earlier end time ("HH:MM") the session must use; otherwise return session_end unchanged.
+    Returns (effective_end, clipped_to) where clipped_to is None when nothing changed."""
+    limit_minutes = config.JOB_LIMIT_MINUTES if limit_minutes is None else limit_minutes
+    if not session_end:
+        return session_end, None
+    try:
+        h, m = (int(x) for x in session_end.split(":"))
+    except ValueError:
+        return session_end, None
+    end_dt = started_at.replace(hour=h, minute=m, second=0, microsecond=0)
+    deadline = started_at + dt.timedelta(minutes=limit_minutes)
+    if end_dt <= deadline:
+        return session_end, None
+    eff = deadline.replace(second=0, microsecond=0).strftime("%H:%M")
+    return eff, eff
+
+
 def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, session_end: str = None,
                 skip_if_closed: bool = False, already_alerted: list = None):
     """Runs continuously, re-scanning every config.MONITOR_INTERVAL_SECONDS
@@ -196,6 +215,11 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
     (exchange holiday), send one Telegram message and end the run - no stale-price
     signals and no wasted minutes. If the check can't be answered, carry on.
     """
+    session_end, clipped_to = job_limit_end(session_end, dt.datetime.now())
+    if clipped_to:
+        # square everything off 2 minutes before the forced end, so no trade is left open when GitHub stops the job
+        cut = (dt.datetime.strptime(clipped_to, "%H:%M") - dt.timedelta(minutes=2)).strftime("%H:%M")
+        config.FORCE_EXIT_TIME = min(config.FORCE_EXIT_TIME, cut)
     state = {
         "last_scan_at": None, "alerted_today": set(), "last_signal_count": 0,
         "day_log": _fresh_day_log(), "watchlisted_today": set(),
@@ -689,8 +713,11 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             f"Scanning every ~{config.MONITOR_INTERVAL_SECONDS}s (plus scan time)"
             f"{' until ' + session_end + ' IST (24-hour clock)' if session_end else ''}. "
             f"Alerts for scores {config.ALERT_SCORE:.0f}+.\n"
-            f"First scan takes a few minutes (it loads history for every symbol); "
+            f"The daily history is loaded first (before the open, if I started early), then the first scan; "
             f"you can already send /add or /trades meanwhile."
+            + (f"\n⚠️ GitHub stops a job after 6 hours, so this session can only run until {clipped_to}: "
+               f"open trades are squared off at {config.FORCE_EXIT_TIME} and the summary follows. "
+               f"(Starting at about 09:15 avoids this.)" if clipped_to else "")
         )
 
     def _fetch_while_polling(chain_filter=None):

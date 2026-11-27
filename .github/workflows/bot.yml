@@ -5,16 +5,14 @@ name: NSE options signal bot
 # IST (TZ below) so its timings stay correct regardless.
 on:
   schedule:
-    # GitHub's scheduler is best-effort: it often starts runs late or skips them (on 25-26 Nov it
-    # delayed runs by 9 hours). So there are five start slots, ALL BEFORE the market opens, and an
-    # outside timer (cron-job.org -> workflow_dispatch, see GITHUB_ACTIONS_DEPLOY.md) is the main
-    # trigger. The bot waits by itself until 09:20 IST before scanning, so an early start is fine.
-    # Only one session ever runs: the others queue behind it (see "concurrency") and exit at once.
-    - cron: "7 3 * * 1-5"       # 08:37 IST
-    - cron: "17 3 * * 1-5"      # 08:47 IST
-    - cron: "27 3 * * 1-5"      # 08:57 IST
-    - cron: "37 3 * * 1-5"      # 09:07 IST
-    - cron: "42 3 * * 1-5"      # 09:12 IST
+    # GitHub's scheduler is best-effort: it often starts runs late or skips them (on 25-26 Nov it delayed runs by 9 hours). An outside timer
+    # (cron-job.org -> workflow_dispatch at 09:15 and 09:25 IST, see GITHUB_ACTIONS_DEPLOY.md) is the main trigger; these slots are backups.
+    # IMPORTANT: GitHub stops a hosted job 6 hours after it starts, so the session must START at about 09:15 or later to reach the 15:10
+    # square-off and the 15:12 end (a 09:00 start was cut off at 15:00 on 27 Nov). The bot also ends itself early and squares off if it
+    # was started earlier than that (JOB_LIMIT_MINUTES in config.py). Only one session ever runs: the others queue behind it and exit.
+    - cron: "45 3 * * 1-5"      # 09:15 IST
+    - cron: "50 3 * * 1-5"      # 09:20 IST
+    - cron: "55 3 * * 1-5"      # 09:25 IST
   workflow_dispatch:             # "Run workflow" button for manual tests
     inputs:
       session_end:
