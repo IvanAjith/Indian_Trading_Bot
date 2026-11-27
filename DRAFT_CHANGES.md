@@ -76,6 +76,9 @@ Full write-up: `journal/notes/2026-11-26-silent-winners.md` on the journal-data 
 - Journal now tracks oi_against, stretched, continuation; the weekly review compares them and lists silent T1 trades.
 - BUILT 26 Nov evening on Ajith's request: D4a (OI direction-aware), D4b (stretched RSI -5, stocks only), D4c (continuation +6). In-sample replay of 26 Nov: 7 alerts, 5 wins, +Rs 16,769 vs 6 alerts, 3 wins, -Rs 1,806 actual (fitted to that day - NOT evidence).
 
+## 27 Nov live observations (from the chat, before the session ended)
+See `journal/notes/2026-11-27-live-observations.md` on the journal-data branch (same text). Key points: timer start and 2.2-min first scan worked; ADANIPORTS and BEL alerts stopped out (-18,800); alerts were thin/against the day (daily-vs-15m confusion, thin daily trend, put alert on a stock rallying, volume not direction-aware, bare-70 scores). Candidates added to the lab; verify volume units after the session.
+
 ## Ideas log (add below)
 - (26 Nov, Ajith) Use SUPPORT and RESISTANCE of each underlying to judge the strike/premium: today the strike chooser only checks the nearest open-interest wall (a crude resistance/support proxy). Idea: from the 60-day daily history compute swing highs/lows, the 20-day high/low and round-number levels; for a call, check that Target 1 (and 2) on the underlying sit BEFORE the nearest resistance (for a put: before the nearest support), and prefer a strike whose target stays inside that room. Candidate for the nightly rule lab first (replay on the journal: do trades with room to the next level reach T1 more often?), then live. Not built.
 

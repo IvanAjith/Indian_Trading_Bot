@@ -39,6 +39,7 @@ class ScreenResult:
     trigger_reasons: list  # human-readable technical triggers that fired
     notes: str
     parts: dict = field(default_factory=dict)   # score breakdown: mom, vol, oi, iv, penalty, bonus (for the journal / rule lab)
+    trend: dict = field(default_factory=dict)   # DAILY trend strength (information for the journal / rule lab, not scored)
 
 
 def _momentum_score(closes: pd.Series) -> tuple[float, str, float]:
@@ -200,6 +201,15 @@ def screen_symbol(snapshot: UnderlyingSnapshot) -> ScreenResult:
         notes.append("no clean trend")
     notes.extend(extra_notes)
 
+    trend = {}
+    try:
+        if len(closes) >= 21:
+            e9v, e20v = float(ema(closes, 9).iloc[-1]), float(ema(closes, 20).iloc[-1])
+            last = float(closes.iloc[-1])
+            trend = {"ema_gap_pct": round((e9v / e20v - 1) * 100, 2), "price_vs_ema9_pct": round((last / e9v - 1) * 100, 2),
+                     "day_move_pct": round((snapshot.spot / snapshot.prev_close - 1) * 100, 2) if snapshot.prev_close else None}
+    except Exception:
+        trend = {}
     return ScreenResult(
         symbol=snapshot.symbol,
         bias=bias,
@@ -211,6 +221,7 @@ def screen_symbol(snapshot: UnderlyingSnapshot) -> ScreenResult:
         iv_pct=round(iv_pct, 1),
         trigger_reasons=trigger_reasons,
         notes="; ".join(notes) if notes else "clean setup",
+        trend=trend,
         parts={"mom": round(float(mom_score), 2), "vol": round(float(vol_score), 2), "oi": float(oi_score),
                "iv": float(iv_score), "penalty": applied_penalty, "bonus": applied_bonus},
     )
