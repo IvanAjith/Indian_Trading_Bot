@@ -104,9 +104,9 @@ jobs:
           git diff --cached --quiet && { echo "Nothing new to commit."; exit 0; }
           git commit -q -m "Journal $(date +%F) run ${GITHUB_RUN_ID}"
           git push -q origin journal-data
-      - name: Tell me on Telegram if the run failed
-        if: failure() && steps.guard.outputs.go == 'true'
+      - name: Tell me on Telegram if the run failed or was cancelled
+        if: (failure() || cancelled()) && steps.guard.outputs.go == 'true'
         run: |
           curl -s "https://api.telegram.org/bot${TB_TELEGRAM_TOKEN}/sendMessage" \
             -d chat_id="${TB_TELEGRAM_CHAT_ID}" \
-            --data-urlencode text="❌ Trading bot run FAILED today. Check the Actions tab: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null
+            --data-urlencode text="❌ Trading bot run FAILED or was CANCELLED today. Check the Actions tab: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" >/dev/null

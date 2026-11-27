@@ -315,7 +315,7 @@ CONTINUATION_MIN_MOVE_PCT = 2.0
 # Change it ONLY when the live scoring rules change (after a weekly-meeting decision).
 RULES_VERSION = "v2-2026-11-26"
 # Cap on silent paper trades per day (the lower 60-64.9 band adds trades; this keeps quote traffic bounded).
-SILENT_MAX_PER_DAY = 40
+SILENT_MAX_PER_DAY = 80
 # After each session the bot writes a nightly learning report (journal/lab/) and sends a short note to Telegram.
 NIGHTLY_LEARNING_TELEGRAM = True
 
@@ -343,3 +343,17 @@ MAX_LOSS_PER_LOT = 4000
 # trend alone said "bearish"). The signal is still tracked silently for the journal and the rule lab; no heads-up is sent either.
 # None = off. Applies to stocks and indexes. The lab keeps comparing blocked against allowed trades, so it can be undone at a weekly meeting.
 BLOCK_AGAINST_DAY_MOVE_PCT = 0.5
+
+# ---------------------------------------------------------------------------
+# Silent intraday INDEX regime test (added 27 Nov 2026) - NO alerts, journal and rule lab only
+# ---------------------------------------------------------------------------
+# The bot's direction comes from the DAILY trend, so it cannot catch an intraday reversal (the advisor's NIFTY 25850 PE on 27 Nov, +20% by 11:21).
+# Every REGIME_CHECK_SECONDS the bot reads NIFTY/BANKNIFTY/FINNIFTY: 15-minute EMA9 vs EMA20, price vs the day's VWAP, the day's change, and whether
+# price broke the previous day's low/high. BEARISH = EMA9 below EMA20 AND below VWAP AND down REGIME_DAY_CHANGE_PCT or more; BULLISH = the mirror.
+# Each reading is logged (journal/regime-<date>.jsonl). When an index turns BEARISH/BULLISH the bot opens a SILENT paper trade (ATM put/call, within the
+# budget and loss cap), at most REGIME_MAX_TRADES_PER_INDEX per index per day and none after NO_ALERTS_AFTER. The rule lab compares them with the
+# daily-trend index trades; nothing here sends an alert until a weekly meeting decides so.
+INDEX_REGIME_SHADOW = True
+REGIME_CHECK_SECONDS = 300
+REGIME_DAY_CHANGE_PCT = 0.3
+REGIME_MAX_TRADES_PER_INDEX = 3

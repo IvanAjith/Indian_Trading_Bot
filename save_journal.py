@@ -43,7 +43,7 @@ def merge(src: str, dst: str) -> int:
                     out.write("\n")                      # blank line between runs' sections
                 out.write(text if text.endswith("\n") else text + "\n")
     for name in sorted(os.listdir(src)):          # the day's scanned-symbol list: simply copied (one file per day, overwritten)
-        if name.startswith("universe-") and name.endswith(".txt"):
+        if (name.startswith("universe-") and name.endswith(".txt")) or (name.startswith("regime-") and name.endswith(".jsonl")):
             with open(os.path.join(src, name)) as fh, open(os.path.join(dst, name), "w") as out:
                 out.write(fh.read())
     print(f"[save_journal] merged {saved} trade record(s) into {dst}")

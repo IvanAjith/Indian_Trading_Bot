@@ -69,7 +69,7 @@ Each symbol gets a 0-100 **score**:
   a put needs put build-up); a **stretched trend** (stock call with RSI 70+, put with RSI 30 or below) loses 5 points; and a
   **continuation** (the stock already moved 2%+ in the trade's direction, with agreeing OI and a trend not stretched) gains 6.
   These come from one day (21 stock trades) - the weekly review checks them and they are re-examined at the 11 and 18 Dec checkpoints.
-- Score **60 to 69.9** → **no alert**. These signals are paper-traded **silently** (`SHADOW_TRACK_LOWER_BAND`, at most 40 a day, none after 14:55) and
+- Score **60 to 69.9** → **no alert**. These signals are paper-traded **silently** (`SHADOW_TRACK_LOWER_BAND`, at most 80 a day, none after 14:55) and
   written to the journal, so the weekly review can show whether the lower band really does worse. The summary has a
   "🔇 Silent tracking" line; they never appear in `/trades` or in your totals. If the silent trades turn out as good
   as the alerted ones, the alert score can come down; if clearly worse, it stays.
@@ -119,7 +119,7 @@ Each symbol gets a 0-100 **score**:
   new alerts) and says "too early" until about 30 out-of-sample alerts. Nightly **data checks** flag stale volume days, missing fields,
   duplicates, scores that do not match their parts and silent trades after the stop. The weekly review includes the lab table. A person
   approves **at most one rule change per week**; then bump `RULES_VERSION`. Silent tracking now starts at score 60 (`MIN_SIGNAL_SCORE`,
-  at most `SILENT_MAX_PER_DAY` = 40 per day); heads-ups still need 65+.
+  at most `SILENT_MAX_PER_DAY` = 80 per day); heads-ups still need 65+.
 - **Faster scans (two-stage).** A scan used to download option quotes for ~100 symbols (about 90 s), so alerts and
   heads-ups arrived in bursts, minutes late. Now stage 1 prices every symbol and scores it without the option-OI part;
   stage 2 downloads option chains only for symbols that could still reach the heads-up band (the OI part can add at most
@@ -131,6 +131,13 @@ Each symbol gets a 0-100 **score**:
   **15-minute trend** (EMA9 vs EMA20 and price vs the day's VWAP) as information, and the journal records it for every trade
   (`intraday`), with new factors `intraday_against` / `intraday_agrees`. It does not change any score. The nightly rule lab tests the
   candidate "intraday_15m_must_agree"; it becomes a rule only if the data supports it at a weekly meeting.
+- **Support/resistance and the silent index-regime test (added 27 Nov, information only).** Every trade now records its support and resistance
+  levels (20-day high/low, previous day's high/low, pivot points, round numbers) and the room to the next level in its direction
+  (`trend_daily.levels`), plus the day's high/low and the previous day's high/low from 15-minute data (`intraday`). Separately, every 5 minutes the bot
+  reads **NIFTY, BANKNIFTY and FINNIFTY** (15-minute EMA9 vs EMA20, price vs the day's VWAP, the day's change) and logs the regime
+  (`journal/regime-<date>.jsonl`). When an index turns bullish/bearish it opens a **silent** ATM paper trade (max 3 per index per day,
+  within the budget and loss cap). **No alert is sent**; the nightly lab compares these trades with the daily-trend index trades
+  (`INDEX_REGIME_SHADOW`, `REGIME_*` in `config.py`). Lab candidate `room_to_level_1pct` tests the room-to-run check for stocks.
 - **Volume is live.** Today's traded volume is read from the live quote on every scan (an earlier version used a
   daily candle cached for 4 hours, which made morning scores too low and caused an alert burst at the refresh).
   `VOLUME_TIME_ADJUST` (off by default) can compare volume with what is usual by this time of day.
@@ -151,10 +158,12 @@ Each symbol gets a 0-100 **score**:
 ⏰ 9:48 AM
 🎯 Target 1: ₹36.80   🎯 Target 2: ₹41.60   🎯 Target 3: ₹48.00
 🛑 Stoploss: ₹26.24
-📦 Lot size 500 | 1 lot costs ₹16,000 | max loss at SL ≈ ₹2,880 per lot
+📦 Lot size 500 | 1 lot costs ₹16,000 | max loss at SL ≈ ₹2,880 per lot (₹3,200 worst case with slippage)
 📊 Score: 74/100
 💡 Why: broke above 20-day resistance; daily EMA9 above EMA20; volume 1.8x average; options OI shows long buildup
+⏱ 15-min trend of the stock: agrees ✓ (EMA9 above EMA20; price above the day average (VWAP)) - the call itself is based on the DAILY trend
 ```
+(A cheaper-strike alert also says that at-the-money was over your limit, and why this strike was chosen.)
 
 **Watchlist heads-up** - deliberately tiny, so you can tell it apart at a glance
 ```
@@ -341,7 +350,8 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `CHEAPER_STRIKE_SHADOW`, `CHEAPER_STRIKE_ALERTS`, `STRIKE_MIN_DELTA`, `STRIKE_MAX_MOVE_ATR_FRAC`, `STRIKE_MIN_VOLUME`, `STRIKE_MIN_OI`, `STRIKE_OI_WALL_RATIO` | True, False, 0.25, 0.35, 200, 1000, 1.5 | Reasoned strike choice: silent test on, real alerts off |
 | `TWO_STAGE_SCAN`, `TWO_STAGE_FULL_EVERY`, `PRELOAD_BEFORE_OPEN`, `SILENT_TRACK_UNTIL` | True, 20, True, 14:55 | Faster scans (option chains only where they can matter), history pre-loaded before the open, no silent trades in the last 15 minutes |
 | `OI_DIRECTION_AWARE`, `STRETCHED_RSI_PENALTY`, `STRETCHED_RSI_HIGH/LOW`, `CONTINUATION_BONUS`, `CONTINUATION_MIN_MOVE_PCT` | True, 5, 70/30, 6, 2.0 | Score changes learned from the 26 Nov silent winners (set a penalty/bonus to 0 to switch it off) |
-| `RULES_VERSION`, `SILENT_MAX_PER_DAY`, `NIGHTLY_LEARNING_TELEGRAM`, `MIN_SIGNAL_SCORE` | v2-2026-11-26, 40, True, 60 | Learning loop: rule version stamp, silent-trade cap, nightly Telegram note, silent-tracking floor |
+| `RULES_VERSION`, `SILENT_MAX_PER_DAY`, `NIGHTLY_LEARNING_TELEGRAM`, `MIN_SIGNAL_SCORE` | v2-2026-11-26, 80, True, 60 | Learning loop: rule version stamp, silent-trade cap, nightly Telegram note, silent-tracking floor |
+| `INDEX_REGIME_SHADOW`, `REGIME_CHECK_SECONDS`, `REGIME_DAY_CHANGE_PCT`, `REGIME_MAX_TRADES_PER_INDEX` | True, 300, 0.3, 3 | Silent intraday index-regime test (no alerts) |
 | `QUICK_CHECK_SECONDS` | 20 | Open trades are re-priced this often between full scans |
 | `PAPER_TRACK_ALL_SIGNALS` | True | Paper-trade every alert (no position cap) |
 | `MAX_CAPITAL_PER_TRADE_PCT`, `MAX_TRADES_PER_DAY` | 5, 3 | Risk per trade / max open positions (the cap applies only if tracking-all is False) |
@@ -366,6 +376,7 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 | `market_calendar.py`, `holiday_notice.py`, `market_holidays.json` | Holiday lookup and notice |
 | `backtest.py`, `backtest_report.py` | Approximate historical check and HTML report |
 | `diagnose_angelone.py` | Prints raw Angel One responses to debug login/data |
+| `levels.py` | Support/resistance levels and room to the next level (journal/lab only) |
 | `rule_lab.py`, `rediagnose_journal.py` | Nightly learning loop (candidate rules replayed on the journal, data checks) and a helper that re-reads old journal rows with the current rules |
 | `journal.py`, `weekly_review.py`, `save_journal.py` | The per-trade journal, the weekly pattern review, and the helper that saves the journal |
 | `.github/workflows/weekly-review.yml` | Friday 17:00 IST weekly review |
@@ -375,8 +386,9 @@ Bring the weekly suggestions to the review; accepted ones are a one-line change 
 
 ## Known limitations
 
-- Signals use **daily** RSI/EMA plus the live price - no intraday candles or VWAP yet.
-- The first 5 minutes after the open are ignored (waiting for the market-open check).
+- The **direction of a call comes from the DAILY trend** (RSI/EMA) plus the live price. Intraday data (15-minute EMA, VWAP, support/resistance levels, the index regime) is only **logged and shown as information**, or run as a silent test, until a weekly meeting makes a rule of it.
+- The first scan starts at about 09:20 (the bot waits for the market-open check and pre-loads the history first).
+- The paper account sizes every alert the same way (index 3 lots, stock 2 lots); peak capital in use can exceed the ₹1 lakh account.
 - OI change is measured against the bot's first reading of the day, so it is weak early on.
 - Polling, not streaming; real option spreads can exceed the 1% slippage assumed in paper fills.
 - Angel One may restrict API access by IP; GitHub's servers change IP each run. If login fails you get

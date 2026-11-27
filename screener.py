@@ -23,6 +23,7 @@ import pandas as pd
 from indicators import ema, rsi, iv_percentile
 from data_fetcher import UnderlyingSnapshot
 import triggers as trig
+import levels as levels_mod
 import config
 
 
@@ -208,6 +209,7 @@ def screen_symbol(snapshot: UnderlyingSnapshot) -> ScreenResult:
             last = float(closes.iloc[-1])
             trend = {"ema_gap_pct": round((e9v / e20v - 1) * 100, 2), "price_vs_ema9_pct": round((last / e9v - 1) * 100, 2),
                      "day_move_pct": round((snapshot.spot / snapshot.prev_close - 1) * 100, 2) if snapshot.prev_close else None}
+            trend["levels"] = levels_mod.key_levels(snapshot.history, snapshot.spot)
     except Exception:
         trend = {}
     return ScreenResult(

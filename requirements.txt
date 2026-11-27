@@ -1,9 +1,9 @@
-requests>=2.31
-pandas>=2.0
-numpy>=1.24
+requests==2.34.2
+pandas==3.1.1
+numpy==2.4.6
 
 # Only needed if using --broker angelone
-smartapi-python
-pyotp
-logzero
-websocket-client
+smartapi-python==1.5.5
+pyotp==2.12.1
+logzero==1.7.0
+websocket-client==1.9.2

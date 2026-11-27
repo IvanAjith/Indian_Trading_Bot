@@ -22,7 +22,6 @@ fills with 1% slippage.
 
 import argparse
 import collections
-import datetime as dt
 import os
 import sys
 
@@ -137,6 +136,11 @@ CANDIDATES = [
      "delta": lambda r: (0.0 if not (not stretched(r) and moved_pct(r) >= config.CONTINUATION_MIN_MOVE_PCT and oi_aligned(r))
                          else (-config.CONTINUATION_BONUS if (r.get("entry_clock") or "") < "11:30" else 8.0)),
      "gate": lambda r: True},
+    {"name": "room_to_level_1pct", "proposed": "2026-11-27",
+     "desc": "no alert unless there is at least 1% of room to the next support (put) / resistance (call) - the next level from the 20-day high/low, previous day high/low, pivots and round numbers; rows without levels pass",
+     "delta": lambda r: 0.0,
+     "gate": lambda r: ((r.get("trend_daily") or {}).get("levels") or {}).get("room_up_pct" if r.get("option_type") == "CE" else "room_down_pct") is None
+                       or ((r["trend_daily"]["levels"]["room_up_pct"] if r.get("option_type") == "CE" else r["trend_daily"]["levels"]["room_down_pct"]) >= 1.0)},
     {"name": "alert_score_73", "proposed": "2026-11-27",
      "desc": "raise the alert score from 70 to 73 (the 70-72.9 band went 0 for 4 on 26-27 Nov)",
      "delta": lambda r: -3.0, "gate": lambda r: True},
@@ -183,7 +187,7 @@ def row_issues(r):
     if sil and not r.get("alerted") and (r.get("entry_clock") or "") >= sil and r.get("date", "") >= "2026-11-27":
         issues.append("silent trade after the silent-tracking stop")
     parts = r.get("score_parts")
-    if parts and r.get("score") is not None and r.get("rules_version"):
+    if parts and r.get("score") is not None and r.get("rules_version") and r.get("variant") != "index_regime":
         try:
             calc = (screener.W_MOM * parts["mom"] + screener.W_VOL * parts["vol"] + screener.W_OI * parts["oi"]
                     + screener.W_IV * parts["iv"] - parts.get("penalty", 0) + parts.get("bonus", 0))
@@ -313,7 +317,41 @@ def winners_vs_losers(rows):
     return L
 
 
-def daily_markdown(rows, day):
+def regime_summary(rows, day, journal_dir=None):
+    """Lines about the silent intraday index-regime test: the silent trades it opened and when each index first turned bullish/bearish."""
+    L = []
+    rt = [r for r in rows if r.get("variant") == "index_regime" and r.get("date") == day]
+    daily = [r for r in rows if r.get("is_index") and r.get("variant") != "index_regime" and r.get("date") == day]
+    if rt:
+        for d, label in (("PE", "bearish regime (puts)"), ("CE", "bullish regime (calls)")):
+            x = [r for r in rt if r.get("option_type") == d]
+            if x:
+                sm = wr.stats(x)
+                L.append(f"- Silent {label}: {sm['n']} trades, {sm['wins']} wins, {sum(1 for r in x if r.get('t1_reached'))} reached T1, {money(sm['tot_a'])}.")
+    else:
+        L.append("- No silent regime trade closed today.")
+    if daily:
+        sm = wr.stats(daily)
+        L.append(f"- For comparison, index trades from the daily-trend signal today: {sm['n']} trades, {sm['wins']} wins, {money(sm['tot_a'])}.")
+    path = os.path.join(journal_dir or "", f"regime-{day}.jsonl")
+    if journal_dir and os.path.exists(path):
+        import json as _json
+        first = {}
+        counts = collections.defaultdict(collections.Counter)
+        for line in open(path, encoding="utf-8"):
+            try:
+                x = _json.loads(line)
+            except ValueError:
+                continue
+            counts[x["symbol"]][x["state"]] += 1
+            if x["state"] != "NEUTRAL" and (x["symbol"], x["state"]) not in first:
+                first[(x["symbol"], x["state"])] = x["time"][:5]
+        for sym, c in counts.items():
+            L.append(f"- {sym}: readings {dict(c)}; first BEARISH {first.get((sym, 'BEARISH'), '-')}, first BULLISH {first.get((sym, 'BULLISH'), '-')}.")
+    return L
+
+
+def daily_markdown(rows, day, journal_dir=None):
     today = [r for r in rows if r.get("date") == day]
     counts, dups, clean = data_checks(rows)
     L = [f"# Rule lab - {day}", "", f"Live rules: {config.RULES_VERSION}. Trades in the journal today: {len(today)}.", "",
@@ -330,6 +368,7 @@ def daily_markdown(rows, day):
           f"- Would alert: {_fmt(_summ(today, live))}.",
           f"- Silent/other trades: {len(today) - len(live)}; reached T1 overall: {sum(1 for r in today if r.get('t1_reached'))}.", "",
           "## What today's Target 1 trades had (hypothesis only)", ""] + winners_vs_losers(today) + [""]
+    L += ["## Silent intraday index regime test (no alerts; compare with the daily-trend signal)", ""] + regime_summary(rows, day, journal_dir) + [""]
     L += ["## Candidate rules tonight (replay on today's trades)", ""]
     for c in CANDIDATES:
         cmp_ = compare(today, c)
@@ -341,7 +380,7 @@ def daily_markdown(rows, day):
     return "\n".join(L)
 
 
-def telegram_note(rows, day):
+def telegram_note(rows, day, journal_dir=None):
     today = [r for r in rows if r.get("date") == day]
     live = _summ(today, _alert_set(today))
     counts, _, clean = data_checks(rows)
@@ -365,6 +404,14 @@ def telegram_note(rows, day):
                      f"{'enough data to discuss' if enough else 'too early to decide'}; the weekly meeting reviews it.")
     else:
         lines.append("No out-of-sample days yet - candidates start counting from the next clean day.")
+    try:
+        reg = regime_summary(rows, day, journal_dir)
+        flips = [l[2:] for l in reg if "first BEARISH" in l][:3]
+        silent = [l[2:] for l in reg if l.startswith("- Silent")]
+        if silent or flips:
+            lines.append("Index regime (silent test, no alerts): " + " ".join(silent + flips))
+    except Exception:
+        pass
     lines.append(f"Data checks: {issues} issue(s), {clean} of {len(rows)} rows clean. Full report: journal/lab/ on the journal-data branch.")
     return "\n".join(lines)
 
@@ -383,13 +430,13 @@ def main():
     out = os.path.join(args.journal_dir, "lab")
     os.makedirs(out, exist_ok=True)
     with open(os.path.join(out, f"{day}.md"), "w") as fh:
-        fh.write(daily_markdown(rows, day))
+        fh.write(daily_markdown(rows, day, args.journal_dir))
     with open(os.path.join(out, "candidates.md"), "w") as fh:
         fh.write("\n".join(["# Rule lab - candidates (cumulative)", ""] + candidates_markdown(rows)))
     print(f"[rule_lab] wrote {out}/{day}.md and candidates.md ({len(rows)} trades)")
     if args.telegram and getattr(config, "NIGHTLY_LEARNING_TELEGRAM", True):
         from telegram_notifier import send_telegram_message
-        send_telegram_message(telegram_note(rows, day))
+        send_telegram_message(telegram_note(rows, day, args.journal_dir))
     return 0
 
 

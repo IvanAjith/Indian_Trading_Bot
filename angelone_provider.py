@@ -602,6 +602,7 @@ class AngelOneDataProvider:
             resp = _throttled_candle_call(self.smart_api.getCandleData, params)
             rows = resp.get("data", []) if resp else []
             if len(rows) < 21:
+                STATS["intraday_fail"] = STATS.get("intraday_fail", 0) + 1
                 return None
             closes = pd.Series([float(r[4]) for r in rows])
             e9, e20 = ema(closes, 9).iloc[-1], ema(closes, 20).iloc[-1]
@@ -609,12 +610,23 @@ class AngelOneDataProvider:
             today_rows = [r for r in rows if str(r[0])[:10] == today]
             vol = sum(float(r[5] or 0) for r in today_rows)
             vwap = (sum((float(r[2]) + float(r[3]) + float(r[4])) / 3 * float(r[5] or 0) for r in today_rows) / vol) if vol > 0 else None
+            if vwap is None and today_rows:   # index candles carry no volume: use the plain average of today's typical prices instead
+                vwap = sum((float(r[2]) + float(r[3]) + float(r[4])) / 3 for r in today_rows) / len(today_rows)
             last = float(closes.iloc[-1])
+            prev_dates = sorted({str(r[0])[:10] for r in rows if str(r[0])[:10] < today})
+            prev_rows = [r for r in rows if prev_dates and str(r[0])[:10] == prev_dates[-1]]
+            STATS["intraday_ok"] = STATS.get("intraday_ok", 0) + 1
             return {"ema9_15m": round(float(e9), 2), "ema20_15m": round(float(e20), 2), "ema_up_15m": bool(e9 > e20),
                     "vwap": round(vwap, 2) if vwap else None, "above_vwap": (last >= vwap) if vwap else None,
-                    "last": round(last, 2), "candles_today": len(today_rows), "asof": now.strftime("%H:%M")}
+                    "last": round(last, 2), "candles_today": len(today_rows), "asof": now.strftime("%H:%M"),
+                    "day_high": round(max(float(r[2]) for r in today_rows), 2) if today_rows else None,
+                    "day_low": round(min(float(r[3]) for r in today_rows), 2) if today_rows else None,
+                    "prev_high": round(max(float(r[2]) for r in prev_rows), 2) if prev_rows else None,
+                    "prev_low": round(min(float(r[3]) for r in prev_rows), 2) if prev_rows else None}
         except Exception as exc:
-            print(f"[angelone] intraday context for {symbol} unavailable: {exc}")
+            STATS["intraday_fail"] = STATS.get("intraday_fail", 0) + 1
+            if STATS["intraday_fail"] <= 3:
+                print(f"[angelone] intraday context for {symbol} unavailable: {exc}")
             return None
 
     def traded_today(self):

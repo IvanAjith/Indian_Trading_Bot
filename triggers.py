@@ -11,7 +11,7 @@ Each detector returns (fired: bool, human_readable_reason: str).
 
 import pandas as pd
 
-from indicators import ema, rsi
+from indicators import ema
 
 
 def resistance_breakout(highs: pd.Series, closes: pd.Series, lookback: int = 20) -> tuple[bool, str]:
