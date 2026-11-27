@@ -603,6 +603,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             return
         if config.SILENT_TRACK_UNTIL and dt.datetime.now().strftime("%H:%M") >= config.SILENT_TRACK_UNTIL:
             return
+        if config.SILENT_MAX_PER_DAY and state["silent_count"] >= config.SILENT_MAX_PER_DAY:
+            return
         snap_c = snap_by_symbol.get(r.symbol)
         if snap_c is None:
             return
@@ -619,6 +621,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         idea_c.context["why_shadow"] = "ATM contract over the per-lot budget"
         if account.open_trade(idea_c, shadow=True) is not None:
             state["shadow_cheaper"].add(r.symbol)
+            state["silent_count"] += 1
             print(f"[monitor] silent tracking (reasoned strike): {r.symbol} {idea_c.option_type} "
                   f"{fmt_strike(idea_c.strike)} (score {r.score:.1f}) - " + "; ".join(idea_c.context.get("strike_pick", [])))
 
