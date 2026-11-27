@@ -49,6 +49,7 @@ import requests
 
 from data_fetcher import UnderlyingSnapshot, OptionQuote
 import config
+from indicators import ema
 
 INSTRUMENT_MASTER_URL = (
     "https://margincalculator.angelone.in/OpenAPI_File/files/OpenAPIScripMaster.json"
@@ -579,6 +580,35 @@ class AngelOneDataProvider:
               f"{len(stocks)} (top {config.AUTO_UNIVERSE_MAX_STOCKS} by open interest value + your curated list)."
               + (f" Curated symbols with no live options, skipped: {dropped}" if dropped else ""))
         return [(s, True) for s in config.INDEX_UNIVERSE] + [(s, False) for s in stocks]
+
+    def get_intraday_context(self, symbol: str, is_index: bool = False):
+        """The underlying's 15-MINUTE picture right now, for the journal and the alert text (it does NOT change any score):
+        EMA9 vs EMA20 on 15-minute candles and the price vs the day's VWAP. None if it cannot be read."""
+        try:
+            inst = self._find_equity_or_index_token(symbol, is_index)
+            now = dt.datetime.now()
+            params = {
+                "exchange": "NSE", "symboltoken": inst["token"], "interval": "FIFTEEN_MINUTE",
+                "fromdate": (now - dt.timedelta(days=5)).strftime("%Y-%m-%d 09:15"),
+                "todate": now.strftime("%Y-%m-%d %H:%M"),
+            }
+            resp = _throttled_candle_call(self.smart_api.getCandleData, params)
+            rows = resp.get("data", []) if resp else []
+            if len(rows) < 21:
+                return None
+            closes = pd.Series([float(r[4]) for r in rows])
+            e9, e20 = ema(closes, 9).iloc[-1], ema(closes, 20).iloc[-1]
+            today = now.date().isoformat()
+            today_rows = [r for r in rows if str(r[0])[:10] == today]
+            vol = sum(float(r[5] or 0) for r in today_rows)
+            vwap = (sum((float(r[2]) + float(r[3]) + float(r[4])) / 3 * float(r[5] or 0) for r in today_rows) / vol) if vol > 0 else None
+            last = float(closes.iloc[-1])
+            return {"ema9_15m": round(float(e9), 2), "ema20_15m": round(float(e20), 2), "ema_up_15m": bool(e9 > e20),
+                    "vwap": round(vwap, 2) if vwap else None, "above_vwap": (last >= vwap) if vwap else None,
+                    "last": round(last, 2), "candles_today": len(today_rows), "asof": now.strftime("%H:%M")}
+        except Exception as exc:
+            print(f"[angelone] intraday context for {symbol} unavailable: {exc}")
+            return None
 
     def traded_today(self):
         """True/False: does NIFTY have a daily candle dated today (i.e. NSE is

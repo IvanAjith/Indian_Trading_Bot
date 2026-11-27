@@ -90,9 +90,9 @@ def ema_crossover(closes: pd.Series, bullish: bool) -> tuple[bool, str]:
     crossed_up = e9.iloc[-2] <= e20.iloc[-2] and e9.iloc[-1] > e20.iloc[-1]
     crossed_down = e9.iloc[-2] >= e20.iloc[-2] and e9.iloc[-1] < e20.iloc[-1]
     if bullish and (crossed_up or e9.iloc[-1] > e20.iloc[-1]):
-        return True, "EMA9 above EMA20 (bullish trend)"
+        return True, "daily EMA9 above EMA20 (bullish daily trend)"
     if not bullish and (crossed_down or e9.iloc[-1] < e20.iloc[-1]):
-        return True, "EMA9 below EMA20 (bearish trend)"
+        return True, "daily EMA9 below EMA20 (bearish daily trend)"
     return False, ""
 
 

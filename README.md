@@ -49,7 +49,7 @@ Each symbol gets a 0-100 **score**:
 
 | Component | Weight | Meaning |
 |---|---|---|
-| Momentum | 40% | RSI > 55 with EMA9 above EMA20 → bullish; RSI < 45 with EMA9 below EMA20 → bearish |
+| Momentum | 40% | RSI > 55 with daily EMA9 above EMA20 → bullish; RSI < 45 with EMA9 below EMA20 → bearish |
 | Option open interest | 30% | OI buildup that matches the price direction |
 | Volume | 20% | Today's volume vs the 20-day average |
 | IV | 10% | Off by default (`FETCH_IV`), so effectively a constant |
@@ -124,6 +124,11 @@ Each symbol gets a 0-100 **score**:
   9 points), plus the indexes and anything you hold - their scores are identical to a full scan. The first scan of the day
   and every 20th scan are full (`TWO_STAGE_SCAN`, `TWO_STAGE_FULL_EVERY`). While waiting for the open the bot downloads the
   daily history (`PRELOAD_BEFORE_OPEN`), so the first scan is quick. Silent tracking stops at 14:55 (`SILENT_TRACK_UNTIL`).
+- **What "bullish trend" means.** The call is based on the **stock's DAILY chart** (daily EMA9 above EMA20 and RSI above 55), with today's live
+  price as the latest candle - not on the option's own chart and not on a 15-minute chart. Since 27 Nov each alert also shows the stock's
+  **15-minute trend** (EMA9 vs EMA20 and price vs the day's VWAP) as information, and the journal records it for every trade
+  (`intraday`), with new factors `intraday_against` / `intraday_agrees`. It does not change any score. The nightly rule lab tests the
+  candidate "intraday_15m_must_agree"; it becomes a rule only if the data supports it at a weekly meeting.
 - **Volume is live.** Today's traded volume is read from the live quote on every scan (an earlier version used a
   daily candle cached for 4 hours, which made morning scores too low and caused an alert burst at the refresh).
   `VOLUME_TIME_ADJUST` (off by default) can compare volume with what is usual by this time of day.
@@ -146,7 +151,7 @@ Each symbol gets a 0-100 **score**:
 🛑 Stoploss: ₹26.24
 📦 Lot size 500 | 1 lot costs ₹16,000 | max loss at SL ≈ ₹2,880 per lot
 📊 Score: 74/100
-💡 Why: broke above 20-day resistance; EMA9 above EMA20; volume 1.8x average; options OI shows long buildup
+💡 Why: broke above 20-day resistance; daily EMA9 above EMA20; volume 1.8x average; options OI shows long buildup
 ```
 
 **Watchlist heads-up** - deliberately tiny, so you can tell it apart at a glance

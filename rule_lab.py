@@ -108,6 +108,11 @@ CANDIDATES = [
     {"name": "move_1pct_with_trade", "proposed": "2026-11-26",
      "desc": "no stock alert unless the stock is already 1%+ in the trade's direction today",
      "delta": lambda r: 0.0, "gate": lambda r: (not is_stock(r)) or moved_pct(r) >= 1.0},
+    {"name": "intraday_15m_must_agree", "proposed": "2026-11-27",
+     "desc": "no alert unless the stock's 15-minute EMA9 vs EMA20 agrees with the trade (rows without intraday data pass)",
+     "delta": lambda r: 0.0,
+     "gate": lambda r: (not (r.get("intraday") or {}).get("ema_up_15m") is not None) or
+                       (bool(r["intraday"]["ema_up_15m"]) == (r.get("option_type") == "CE"))},
     {"name": "window_0950_1430", "proposed": "2026-11-26",
      "desc": "alerts only between 09:50 and 14:30 (skip the opening half hour and the last stretch)",
      "delta": lambda r: 0.0, "gate": lambda r: "09:50" <= (r.get("entry_clock") or "") < "14:30"},

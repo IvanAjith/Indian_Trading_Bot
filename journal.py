@@ -48,6 +48,8 @@ RISK_FACTORS = {
     "quick_stop": ("the stop was hit within minutes of entry", "Entry may have been at a spike; look at waiting for confirmation."),
     "oi_against": ("open interest built up AGAINST the trade's direction",
                    "Do not count OI build-up that points the other way (a call with PUT build-up, a put with CALL build-up); require OI to agree with the direction."),
+    "intraday_against": ("the stock's 15-minute trend was against the trade at entry",
+                         "Require the 15-minute trend (EMA9 vs EMA20) to agree with the trade before alerting (the call is based on the daily trend only)."),
     "stretched": ("the trend was already stretched (RSI 70+ for a call, 30- for a put)",
                   "Skip or down-weight calls when RSI is 70+ and puts when RSI is 30 or below - the move may be exhausted."),
 }
@@ -56,6 +58,7 @@ GOOD_FACTORS = {
     "oi_confirmed": "open interest confirmed the direction",
     "with_market": "it agreed with the NIFTY trend",
     "high_score": "high score",
+    "intraday_agrees": "the stock's 15-minute trend agreed with the trade at entry",
     "continuation": "continuation profile (strong same-direction move today + agreeing OI + trend not stretched)",
 }
 
@@ -94,6 +97,7 @@ def facts(pos) -> dict:
         "alerted": not getattr(pos, "shadow", False),
         "variant": ctx.get("variant"), "strike_pick": ctx.get("strike_pick"),
         "score_parts": ctx.get("score_parts"), "rules_version": ctx.get("rules_version"),
+        "intraday": ctx.get("intraday"),
         "lots": pos.lots_total, "lot_size": pos.lot_size, "n_targets": pos.n_targets,
         "entry": entry, "cost_per_lot": round(entry * pos.lot_size, 2),
         "stoploss": None, "target1": pos.target1, "target2": pos.target2, "target3": pos.target3,
@@ -160,6 +164,12 @@ def diagnose(f: dict, pos=None) -> dict:
         risks.append(("oi_against", f"options OI shows {oi.replace('_', ' ')}, which points AGAINST a {'call' if want_up else 'put'}"))
     elif oi is not None and not f["manual"]:
         risks.append(("no_oi", f"open interest was {str(oi).replace('_', ' ')}, not confirming"))
+    intr = f.get("intraday") or {}
+    if intr.get("ema_up_15m") is not None and not f["manual"]:
+        if bool(intr["ema_up_15m"]) == want_up:
+            goods.append(("intraday_agrees", f"the 15-minute trend agreed (EMA9 {'above' if intr['ema_up_15m'] else 'below'} EMA20)"))
+        else:
+            risks.append(("intraday_against", f"the 15-minute trend was against the trade (EMA9 {'above' if intr['ema_up_15m'] else 'below'} EMA20)"))
     rsi = f.get("rsi")
     stretched = rsi is not None and ((want_up and rsi >= RSI_STRETCHED_HIGH) or (not want_up and rsi <= RSI_STRETCHED_LOW))
     if stretched and not f["manual"]:
