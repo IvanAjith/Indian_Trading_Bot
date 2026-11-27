@@ -91,6 +91,14 @@ def _rsi_cap(r, cap=65.0):
     return -screener.W_MOM * 2.0 * excess if excess > 0 else 0.0
 
 
+def _vol_points(r):
+    """The volume part of the score (0-100) implied by the row's volume ratio."""
+    v = r.get("volume_ratio")
+    if v is None:
+        return 40.0
+    return min(100.0, max(0.0, (v - 1.0) * 60.0 + 40.0))
+
+
 CANDIDATES = [
     {"name": "rsi_cap_65", "proposed": "2026-11-26",
      "desc": "momentum earns no extra credit for RSI above 65 (calls) / below 35 (puts)",
@@ -108,6 +116,13 @@ CANDIDATES = [
     {"name": "move_1pct_with_trade", "proposed": "2026-11-26",
      "desc": "no stock alert unless the stock is already 1%+ in the trade's direction today",
      "delta": lambda r: 0.0, "gate": lambda r: (not is_stock(r)) or moved_pct(r) >= 1.0},
+    {"name": "day_move_not_against", "proposed": "2026-11-27",
+     "desc": "no stock alert when the stock is already moving AGAINST the trade today by more than 0.5% (a put on a stock that is up, a call on a stock that is down)",
+     "delta": lambda r: 0.0, "gate": lambda r: (not is_stock(r)) or moved_pct(r) >= -0.5},
+    {"name": "volume_credit_only_if_move_agrees", "proposed": "2026-11-27",
+     "desc": "volume only earns its points when today's move agrees with the trade (high volume on a rally is no support for a put)",
+     "delta": lambda r: (-screener.W_VOL * (_vol_points(r) - 40.0)) if (_vol_points(r) > 40.0 and moved_pct(r) < 0) else 0.0,
+     "gate": lambda r: True},
     {"name": "intraday_15m_must_agree", "proposed": "2026-11-27",
      "desc": "no alert unless the stock's 15-minute EMA9 vs EMA20 agrees with the trade (rows without intraday data pass)",
      "delta": lambda r: 0.0,

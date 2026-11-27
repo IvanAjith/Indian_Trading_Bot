@@ -111,7 +111,7 @@ Each symbol gets a 0-100 **score**:
   trades are tagged in the journal and the weekly review compares them with at-the-money trades ("Strike type").
 - **Learning loop (nightly lab, weekly decisions).** The live scoring rules stay fixed for the week (stamped on every journal row as
   `RULES_VERSION`). After every session `rule_lab.py` replays **candidate rules** (RSI cap, a doubled stretched penalty, a bigger
-  continuation bonus, "OI must agree", "move 1%+ with the trade", an entry-time window) on the journal and writes
+  continuation bonus, "OI must agree", "move 1%+ with the trade", an entry-time window, "day move not against the trade", "volume credit only if the move agrees", "15-minute trend must agree") on the journal and writes
   `journal/lab/<date>.md` and `journal/lab/candidates.md` on the `journal-data` branch, plus a short Telegram note. Each candidate is judged on
   **out-of-sample days only** (days after it was proposed, clean data, live volume); it shows the trade-off (winners dropped, losers avoided,
   new alerts) and says "too early" until about 30 out-of-sample alerts. Nightly **data checks** flag stale volume days, missing fields,
