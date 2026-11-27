@@ -60,6 +60,14 @@ def format_signal_message(idea) -> str:
     expiry_short = _format_expiry_short(idea.expiry)
     reasons = "; ".join(idea.reasons) if idea.reasons else "momentum setup"
     pick = (getattr(idea, "context", {}) or {}).get("strike_pick")
+    intr = (getattr(idea, "context", {}) or {}).get("intraday")
+    intraday_line = ""
+    if intr and intr.get("ema_up_15m") is not None:
+        want_up = idea.option_type == "CE"
+        agrees = bool(intr["ema_up_15m"]) == want_up
+        vw = "" if intr.get("above_vwap") is None else f"; price {'above' if intr['above_vwap'] else 'below'} the day average (VWAP)"
+        intraday_line = (f"⏱ 15-min trend of the stock: {'agrees ✓' if agrees else 'AGAINST ⚠'} "
+                         f"(EMA9 {'above' if intr['ema_up_15m'] else 'below'} EMA20{vw}) - the call itself is based on the DAILY trend\n\n")
     atm = (getattr(idea, "context", {}) or {}).get("atm_cost_per_lot")
     cheaper = (f"\u2139\ufe0f At-the-money costs ₹{atm:,.0f} per lot (over your limit), so this is a cheaper strike - "
                f"not tested over time yet.\n") if (pick and atm) else ""
@@ -81,6 +89,7 @@ def format_signal_message(idea) -> str:
         f"\U0001F4C8 Est. success probability: {idea.win_probability:.0f}% "
         f"<i>(heuristic, not a guarantee)</i>\n\n"
         f"\U0001F4A1 Why: {reasons}\n\n"
+        f"{intraday_line}"
         f"{strike_line}"
         f"⚡ Act now!"
     )

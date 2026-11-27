@@ -432,6 +432,22 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
             return "already alerted today"
         return None
 
+    intraday_cache = {}
+
+    def _intraday_context(symbol: str):
+        """15-minute trend of the underlying, for the journal and the alert text only (no effect on scores). Cached for 5 minutes."""
+        if provider is None or not hasattr(provider, "get_intraday_context"):
+            return None
+        hit = intraday_cache.get(symbol)
+        if hit and time.time() - hit[0] < 300:
+            return hit[1]
+        try:
+            ctx_i = provider.get_intraday_context(symbol, is_index=_is_index_symbol(symbol))
+        except Exception:
+            ctx_i = None
+        intraday_cache[symbol] = (time.time(), ctx_i)
+        return ctx_i
+
     def _over_budget(entry: float, lot_size: int) -> bool:
         return bool(config.MAX_COST_PER_LOT) and entry * lot_size > config.MAX_COST_PER_LOT
 
@@ -456,6 +472,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         if not idea_s or _over_budget(idea_s.entry, idea_s.lot_size):
             return
         idea_s.context["entry_clock"] = dt.datetime.now().strftime("%H:%M")
+        idea_s.context["intraday"] = _intraday_context(r.symbol)
         nifty_s = snap_by_symbol.get("NIFTY")
         if nifty_s is not None and getattr(nifty_s, "prev_close", 0):
             idea_s.context["nifty_chg_pct"] = round((nifty_s.spot / nifty_s.prev_close - 1) * 100, 2)
@@ -484,6 +501,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         if not idea_c:
             return
         idea_c.context["entry_clock"] = dt.datetime.now().strftime("%H:%M")
+        idea_c.context["intraday"] = _intraday_context(r.symbol)
         idea_c.context["why_shadow"] = "ATM contract over the per-lot budget"
         if account.open_trade(idea_c, shadow=True) is not None:
             state["shadow_cheaper"].add(r.symbol)
@@ -979,6 +997,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
                 if key in state["alerted_today"] and not is_repeat:
                     continue   # (a repeat call on the same contract after a LOSS is allowed - see _alert_block_reason)
                 idea.context["entry_clock"] = now.strftime("%H:%M")
+                idea.context["intraday"] = _intraday_context(idea.symbol)
                 nifty = snap_by_symbol.get("NIFTY")
                 if nifty is not None and getattr(nifty, "prev_close", 0):
                     idea.context["nifty_chg_pct"] = round((nifty.spot / nifty.prev_close - 1) * 100, 2)
