@@ -135,6 +135,9 @@ CANDIDATES = [
      "delta": lambda r: 0.0,
      "gate": lambda r: (not is_stock(r)) or (r.get("trend_daily") or {}).get("ema_gap_pct") is None or
                        (((r["trend_daily"]["ema_gap_pct"] if r.get("option_type") == "CE" else -r["trend_daily"]["ema_gap_pct"])) >= 1.0)},
+    {"name": "min_premium_10", "proposed": "2026-11-27",
+     "desc": "no alert when the option premium is under Rs 10 (tiny premiums have big relative spreads and a stop worth only a few ticks)",
+     "delta": lambda r: 0.0, "gate": lambda r: (r.get("entry") or 0) >= 10.0},
     {"name": "intraday_15m_must_agree", "proposed": "2026-11-27",
      "desc": "no alert unless the stock's 15-minute EMA9 vs EMA20 agrees with the trade (rows without intraday data pass)",
      "delta": lambda r: 0.0,
