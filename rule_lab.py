@@ -123,6 +123,16 @@ CANDIDATES = [
      "desc": "volume only earns its points when today's move agrees with the trade (high volume on a rally is no support for a put)",
      "delta": lambda r: (-screener.W_VOL * (_vol_points(r) - 40.0)) if (_vol_points(r) > 40.0 and moved_pct(r) < 0) else 0.0,
      "gate": lambda r: True},
+    {"name": "daily_price_vs_ema9", "proposed": "2026-11-27",
+     "desc": "no stock alert unless the stock's price is on the right side of its DAILY EMA9 (above for a call, below for a put); rows without the data pass",
+     "delta": lambda r: 0.0,
+     "gate": lambda r: (not is_stock(r)) or (r.get("trend_daily") or {}).get("price_vs_ema9_pct") is None or
+                       ((r["trend_daily"]["price_vs_ema9_pct"] >= 0) == (r.get("option_type") == "CE"))},
+    {"name": "daily_ema_gap_1pct", "proposed": "2026-11-27",
+     "desc": "no stock alert unless the DAILY EMA9/EMA20 gap is at least 1% in the trade's direction (a real trend, not a thin one); rows without the data pass",
+     "delta": lambda r: 0.0,
+     "gate": lambda r: (not is_stock(r)) or (r.get("trend_daily") or {}).get("ema_gap_pct") is None or
+                       (((r["trend_daily"]["ema_gap_pct"] if r.get("option_type") == "CE" else -r["trend_daily"]["ema_gap_pct"])) >= 1.0)},
     {"name": "intraday_15m_must_agree", "proposed": "2026-11-27",
      "desc": "no alert unless the stock's 15-minute EMA9 vs EMA20 agrees with the trade (rows without intraday data pass)",
      "delta": lambda r: 0.0,
