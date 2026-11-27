@@ -98,6 +98,7 @@ def facts(pos) -> dict:
         "variant": ctx.get("variant"), "strike_pick": ctx.get("strike_pick"),
         "score_parts": ctx.get("score_parts"), "rules_version": ctx.get("rules_version"),
         "intraday": ctx.get("intraday"), "trend_daily": ctx.get("trend_daily"),
+        "path": list(getattr(pos, "path", []) or []),
         "lots": pos.lots_total, "lot_size": pos.lot_size, "n_targets": pos.n_targets,
         "entry": entry, "cost_per_lot": round(entry * pos.lot_size, 2),
         "stoploss": None, "target1": pos.target1, "target2": pos.target2, "target3": pos.target3,

@@ -20,7 +20,7 @@ import time
 import config
 from data_fetcher import get_provider
 from screener import rank_universe, watchlist_candidates, needs_option_chain
-from strategy import pick_reasoned_strike, build_trade_idea, _pick_strike
+from strategy import pick_reasoned_strike, build_trade_idea, _pick_strike, max_cost_per_lot
 from paper_trader import PaperTradingAccount
 from telegram_notifier import (
     notify_new_signals, send_telegram_message, format_exit_message, poll_status_requests,
@@ -298,7 +298,7 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         limit_bits = []
         if state["skipped_budget"]:
             names = ", ".join(f"{k} (₹{v:,})" for k, v in sorted(state["skipped_budget"].items(), key=lambda kv: kv[1]))
-            lines.append(f"⛔ Skipped as over budget (more than ₹{config.MAX_COST_PER_LOT:,} for 1 lot): "
+            lines.append(f"⛔ Skipped as over budget (one lot over ₹{(max_cost_per_lot() or 0):,.0f}, i.e. more than ₹{getattr(config, 'MAX_LOSS_PER_LOT', 0) or 0:,} worst-case loss): "
                          f"{len(state['skipped_budget'])} - {names}")
         if config.MAX_ALERTS_PER_DAY:
             limit_bits.append(f"alerts today: {state['alerts_sent_today']} of {config.MAX_ALERTS_PER_DAY}"
@@ -473,7 +473,8 @@ def run_monitor(provider, use_paper: bool = False, max_cycles: int = None, sessi
         return ctx_i
 
     def _over_budget(entry: float, lot_size: int) -> bool:
-        return bool(config.MAX_COST_PER_LOT) and entry * lot_size > config.MAX_COST_PER_LOT
+        cap = max_cost_per_lot()
+        return bool(cap) and entry * lot_size > cap
 
     def _track_silently(r):
         """A signal below ALERT_SCORE: no alert, no Telegram. Paper-trade it quietly (one per symbol per day, and

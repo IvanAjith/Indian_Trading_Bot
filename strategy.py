@@ -67,6 +67,23 @@ def estimate_win_probability(score: float) -> float:
     return round(lo_prob + frac * (hi_prob - lo_prob), 1)
 
 
+def worst_loss_per_lot(entry: float, lot_size: int) -> float:
+    """Worst-case loss on one lot at the stoploss, including the assumed slippage on entry and exit."""
+    frac = (config.STOPLOSS_PCT + 2 * getattr(config, "PAPER_SLIPPAGE_PCT", 1.0)) / 100.0
+    return entry * lot_size * frac
+
+
+def max_cost_per_lot() -> float:
+    """The highest cost of one lot the bot will alert on: the budget limit and the loss cap, whichever is tighter (None = no limit)."""
+    caps = []
+    if config.MAX_COST_PER_LOT:
+        caps.append(float(config.MAX_COST_PER_LOT))
+    if getattr(config, "MAX_LOSS_PER_LOT", None):
+        frac = (config.STOPLOSS_PCT + 2 * getattr(config, "PAPER_SLIPPAGE_PCT", 1.0)) / 100.0
+        caps.append(config.MAX_LOSS_PER_LOT / frac)
+    return min(caps) if caps else None
+
+
 def is_index(symbol: str) -> bool:
     return symbol.upper() in {s.upper() for s in config.INDEX_UNIVERSE}
 
@@ -127,7 +144,7 @@ def pick_reasoned_strike(snapshot: UnderlyingSnapshot, option_type: str, exclude
     sides: "otm" = at/out of the money only (cheaper strikes); "any" = also in-the-money (used when a repeat call must
     avoid an earlier strike). Returns {"leg": OptionQuote, "reasons": [str, ...], "delta": float, "steps": int} or None.
     Rule of thumb applied last: of everything that passes the checks, take the one CLOSEST to the money."""
-    max_cost = config.MAX_COST_PER_LOT if max_cost is None else max_cost
+    max_cost = max_cost_per_lot() if max_cost is None else max_cost
     atm = _pick_strike(snapshot, option_type)
     if atm is None:
         return None
