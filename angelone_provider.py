@@ -87,8 +87,8 @@ STATS = {"calls": 0, "rate_limit_retries": 0}
 
 # Historical candles may be fetched a few at a time (Angel One allows ~3/second): CANDLE_WORKERS
 # requests in flight, with at least CANDLE_MIN_GAP seconds between request starts.
-CANDLE_WORKERS = 3
-CANDLE_MIN_GAP = 0.4
+CANDLE_WORKERS = 2
+CANDLE_MIN_GAP = 0.6      # eased from 3 workers / 0.4 s on 27 Nov 2026: 34% of calls hit the rate limit and the retries cost minutes
 _candle_gate = threading.Lock()
 _last_candle_at = [0.0]
 
@@ -543,6 +543,13 @@ class AngelOneDataProvider:
                 print(f"[angelone] auto-universe failed ({exc}); using the curated list instead.")
                 universe = core
         self._universe_cache = (today, universe)
+        try:   # record WHICH symbols are scanned (so a missed call can be checked against the universe)
+            os.makedirs(config.JOURNAL_DIR, exist_ok=True)
+            with open(os.path.join(config.JOURNAL_DIR, f"universe-{today.isoformat()}.txt"), "w") as fh:
+                fh.write("\n".join(sym for sym, _ in universe) + "\n")
+            print(f"[angelone] scanning {len(universe)} symbols: " + ", ".join(sym for sym, _ in universe))
+        except Exception:
+            pass
         return universe
 
     def _build_auto_universe(self, core: list) -> list:

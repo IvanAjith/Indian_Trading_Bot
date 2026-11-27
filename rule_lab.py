@@ -135,6 +135,9 @@ CANDIDATES = [
      "delta": lambda r: 0.0,
      "gate": lambda r: (not is_stock(r)) or (r.get("trend_daily") or {}).get("ema_gap_pct") is None or
                        (((r["trend_daily"]["ema_gap_pct"] if r.get("option_type") == "CE" else -r["trend_daily"]["ema_gap_pct"])) >= 1.0)},
+    {"name": "alert_score_73", "proposed": "2026-11-27",
+     "desc": "raise the alert score from 70 to 73 (the 70-72.9 band went 0 for 4 on 26-27 Nov)",
+     "delta": lambda r: -3.0, "gate": lambda r: True},
     {"name": "nifty_with_trade", "proposed": "2026-11-27",
      "desc": "no stock alert unless NIFTY's move today agrees with the trade (a call needs NIFTY flat or up, a put needs it flat or down)",
      "delta": lambda r: 0.0,

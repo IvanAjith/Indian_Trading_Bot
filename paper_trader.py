@@ -15,6 +15,7 @@ you can review win-rate/drawdown after a few weeks of paper trading.
 import csv
 import os
 import datetime as dt
+import time
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
@@ -75,6 +76,8 @@ class PaperPosition:
     shadow: bool = False         # silent trade below the alert score: tracked for the journal only
     context: dict = field(default_factory=dict)   # market context at entry (journal)
     trough_price: float = 0.0    # lowest premium seen while open
+    path: list = field(default_factory=list)   # [["HH:MM:SS", premium], ...] about once a minute while open (journal; lets the lab replay other targets/stops)
+    path_last_ts: float = 0.0
     t1_at: str = ""              # when Target 1 was first reached
     t1_price: float = 0.0        # price seen when Target 1 was first reached (for the "sell all at T1" comparison)
     peak_price: float = 0.0      # highest premium seen while the trade was open (to show what was given back)
@@ -282,6 +285,9 @@ class PaperTradingAccount:
             if not (pos.symbol == symbol and pos.option_type == option_type and pos.strike == strike):
                 continue
 
+            if time.time() - pos.path_last_ts >= 60 and len(pos.path) < 450:
+                pos.path.append([now.strftime("%H:%M:%S"), round(float(current_ltp), 2)])
+                pos.path_last_ts = time.time()
             pos.peak_price = max(pos.peak_price, current_ltp)
             pos.trough_price = current_ltp if pos.trough_price <= 0 else min(pos.trough_price, current_ltp)
 

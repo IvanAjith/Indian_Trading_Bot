@@ -22,7 +22,7 @@ INDEX_UNIVERSE = ["NIFTY", "BANKNIFTY", "FINNIFTY"]
 # live options. Wider coverage = a longer scan cycle (each ~40 option contracts
 # cost one API call), so keep the number moderate.
 AUTO_UNIVERSE = True
-AUTO_UNIVERSE_MAX_STOCKS = 80
+AUTO_UNIVERSE_MAX_STOCKS = 120   # was 80; ~120 F&O stocks exist, so this is effectively all of them (two-stage scans keep it fast)
 
 # Implied volatility needs one extra API call per symbol (every 5 min). It is
 # currently a 10% score input that comes out the same for almost every symbol
@@ -72,7 +72,7 @@ NO_ALERTS_AFTER = "14:45"        # no entry alerts or heads-ups from this IST ti
 MAX_ALERTS_PER_SCAN = 2          # at most this many new alerts per scan, best score first. Others are NOT lost:
                                  # if they still qualify they alert in the next scan, a minute or two later
 MAX_ALERTS_PER_DAY = None        # optional hard limit on alerts per day (None = no limit)
-MAX_COST_PER_LOT = 35000         # skip signals whose contract costs more than this for ONE lot
+MAX_COST_PER_LOT = 35000         # skip signals whose contract costs more than this for ONE lot (the loss cap below is usually the tighter limit)
                                  # (premium x lot size). Matches a small account: Rs1 lakh = ~3 such trades.
                                  # None = no budget filter. Skipped signals are counted in the daily summary.
 MIN_SIGNAL_SCORE = 60.0          # floor for any signal at all: 60-69.9 are tracked SILENTLY (journal only; heads-ups still need 65+).
@@ -324,3 +324,13 @@ NIGHTLY_LEARNING_TELEGRAM = True
 # starts if that is earlier than SESSION_END, squares everything off 2 minutes before, and says so in the "Bot started" message.
 # Start the bot at about 09:15 (cron-job.org timers at 09:15 and 09:25) so the whole session fits: 09:15 + 5h58m = 15:13.
 JOB_LIMIT_MINUTES = 358
+
+# ---------------------------------------------------------------------------
+# Capital protection (added 27 Nov 2026, Ajith: the advisor's risk is Rs 2,000-4,000 per lot, ours went past Rs 5,000)
+# ---------------------------------------------------------------------------
+# WORST-CASE loss on ONE lot at the stoploss, INCLUDING the assumed slippage on both sides:
+#     cost per lot x (STOPLOSS_PCT + 2 x PAPER_SLIPPAGE_PCT) / 100   must be <= MAX_LOSS_PER_LOT
+# With the 18% stop and 1% slippage each side that is about 20% of the cost, so a Rs 4,000 cap means one lot may cost at most about Rs 20,000
+# (the Rs 35,000 limit above would allow Rs 7,000 of loss). Signals over the cap get the same treatment as over-budget ones: a cheaper strike
+# chosen by reasons if one passes the checks, otherwise skipped (counted in the summary). None = no loss cap.
+MAX_LOSS_PER_LOT = 4000
